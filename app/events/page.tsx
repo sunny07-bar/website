@@ -12,7 +12,7 @@ import { isEventActive } from '@/lib/utils/timezone'
 export default async function EventsPage() {
   const allEvents = await getEvents()
   console.log(`[EventsPage] Total events fetched: ${allEvents.length}`)
-  
+
   // Filter featured events to only show active ones (haven't ended yet)
   const featuredEvents = allEvents.filter(e => {
     const isFeatured = e.is_featured
@@ -22,7 +22,7 @@ export default async function EventsPage() {
     }
     return isFeatured && active
   })
-  
+
   const events = allEvents
 
   return (
@@ -34,18 +34,18 @@ export default async function EventsPage() {
           </h1>
           <div className="section-divider mb-6"></div>
           <p className="body-text max-w-3xl mx-auto text-lg">
-            Join us for amazing live music performances and special events throughout the week.
+            us for amazing live music performances and special events throughout the week.
           </p>
         </div>
 
-      {/* Featured Events */}
-      {featuredEvents.length > 0 && (
-        <div className="mb-16 md:mb-20">
-          <div className="text-center mb-10 md:mb-12">
-            <h2 className="section-title mb-4">FEATURED EVENTS</h2>
-            <div className="section-divider"></div>
-          </div>
-            
+        {/* Featured Events */}
+        {featuredEvents.length > 0 && (
+          <div className="mb-16 md:mb-20">
+            <div className="text-center mb-10 md:mb-12">
+              <h2 className="section-title mb-4">FEATURED EVENTS</h2>
+              <div className="section-divider"></div>
+            </div>
+
             {/* Featured Events List - Horizontal Timeline Style */}
             <div className="space-y-0">
               {featuredEvents.map((event, index) => {
@@ -57,13 +57,12 @@ export default async function EventsPage() {
                   month: format(eventStart, 'MMM'),
                   full: format(eventStart, 'MMMM d, yyyy')
                 }
-                
+
                 return (
                   <div
                     key={event.id}
-                    className={`border-b border-white/10 last:border-b-0 ${
-                      index > 0 ? 'pt-5 md:pt-8' : ''
-                    } ${index < featuredEvents.length - 1 ? 'pb-5 md:pb-8' : ''}`}
+                    className={`border-b border-white/10 last:border-b-0 ${index > 0 ? 'pt-5 md:pt-8' : ''
+                      } ${index < featuredEvents.length - 1 ? 'pb-5 md:pb-8' : ''}`}
                   >
                     {/* Mobile Layout */}
                     <div className="md:hidden space-y-4">
@@ -86,7 +85,7 @@ export default async function EventsPage() {
                             </span>
                           </div>
                         </div>
-                        
+
                         {/* Event Image */}
                         <Link href={`/events/${encodeURIComponent(event.slug)}`} className="flex-1">
                           <div className="relative aspect-[16/10] rounded-xl overflow-hidden card-premium p-0 group border-2 border-[#F59E0B]/30">
@@ -252,12 +251,12 @@ export default async function EventsPage() {
               })}
             </div>
           </div>
-      )}
+        )}
 
-      {/* Timeline Events Listing */}
-      <div>
-        <EventsTimeline events={events} />
-      </div>
+        {/* Timeline Events Listing */}
+        <div>
+          <EventsTimeline events={events} />
+        </div>
       </div>
     </div>
   )
