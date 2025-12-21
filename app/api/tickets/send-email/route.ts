@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
+import { formatFloridaTime, toFloridaTime } from '@/lib/utils/timezone'
+import { parseISO } from 'date-fns'
 
 // This endpoint will be called after successful ticket purchase
 // It uses Supabase Edge Functions or a service like Resend to send emails
 export async function POST(request: NextRequest) {
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Database service unavailable. Please check configuration.' },
+      { status: 503 }
+    )
+  }
+
   try {
     const body = await request.json()
     const { orderId, customerEmail } = body
@@ -66,6 +75,19 @@ export async function POST(request: NextRequest) {
 
     // Prepare email content
     const event = order.events
+    
+    // Format event date and time in Florida EST
+    const eventDate = toFloridaTime(event.event_start)
+    const eventDateStr = formatFloridaTime(eventDate, 'EEEE, MMMM d, yyyy')
+    const eventTimeStr = formatFloridaTime(eventDate, 'h:mm a')
+    
+    // Format event end time if available
+    let eventEndTimeStr = ''
+    if (event.event_end) {
+      const eventEndDate = toFloridaTime(event.event_end)
+      eventEndTimeStr = formatFloridaTime(eventEndDate, 'h:mm a')
+    }
+    
     const emailSubject = `Your Tickets for ${event.title}`
     
     // HTML email template
@@ -97,8 +119,8 @@ export async function POST(request: NextRequest) {
             </div>
             <div class="content">
               <h2>${event.title}</h2>
-              <p><strong>Date:</strong> ${new Date(event.event_start).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p><strong>Time:</strong> ${new Date(event.event_start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
+              <p><strong>Date:</strong> ${eventDateStr}</p>
+              <p><strong>Time:</strong> ${eventTimeStr} EST${eventEndTimeStr ? ` - ${eventEndTimeStr} EST` : ''}</p>
               ${event.location ? `<p><strong>Location:</strong> ${event.location}</p>` : ''}
               
               <h3 style="margin-top: 30px;">Your Tickets (${ticketsWithQR.length})</h3>

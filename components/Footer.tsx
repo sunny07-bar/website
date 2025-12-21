@@ -1,152 +1,145 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { Music, MapPin, Phone, Mail, Instagram, Facebook } from 'lucide-react'
-import { supabase } from '@/lib/db'
+import { MapPin, Phone, Mail, Instagram, Facebook } from 'lucide-react'
+import { getAllSiteSettings } from '@/lib/queries'
 
 export default function Footer() {
-  const [socialLinks, setSocialLinks] = useState({
+  const [siteInfo, setSiteInfo] = useState({
+    restaurant_name: 'Good Times Bar & Grill',
+    address: '1/20 Fennell St, Maitland, FL 32751',
+    phone: '(321) 316-4644',
+    email: 'fun@goodtimesbarandgrill.com',
+    instagram_user_id: '',
     instagram_url: '',
+    facebook_user_id: '',
     facebook_url: ''
   })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchSocialLinks = async () => {
+    const fetchData = async () => {
       try {
-        const { data, error } = await supabase
-          .from('site_settings')
-          .select('key, value')
-          .in('key', ['instagram_url', 'facebook_url'])
-
-        if (error) {
-          console.error('Error fetching social links:', error)
-          return
+        // Fetch all site settings
+        const settings = await getAllSiteSettings()
+        
+        // Extract username from URL or use as-is
+        const extractUsername = (value: string): { username: string; url: string } => {
+          const trimmed = value.toString().trim()
+          if (!trimmed) return { username: '', url: '' }
+          
+          // Remove @ if present
+          let cleaned = trimmed.replace(/^@/, '')
+          
+          // Extract username from URL
+          const instagramMatch = cleaned.match(/(?:instagram\.com\/|^)([^\/\?]+)/i)
+          const facebookMatch = cleaned.match(/(?:facebook\.com\/|^)([^\/\?]+)/i)
+          
+          if (instagramMatch && instagramMatch[1]) {
+            const username = instagramMatch[1]
+            return { username, url: `https://instagram.com/${username}` }
+          }
+          if (facebookMatch && facebookMatch[1]) {
+            const username = facebookMatch[1]
+            return { username, url: `https://facebook.com/${username}` }
+          }
+          
+          // If no URL pattern, assume it's just a username
+          return { username: cleaned, url: cleaned.startsWith('http') ? cleaned : '' }
         }
+        
+        const instagramData = extractUsername(settings.instagram_user_id || '')
+        const facebookData = extractUsername(settings.facebook_user_id || '')
+        
+        setSiteInfo({
+          restaurant_name: settings.restaurant_name || 'Good Times Bar & Grill',
+          address: settings.restaurant_address || settings.address || '1/20 Fennell St, Maitland, FL 32751',
+          phone: settings.restaurant_phone || settings.phone || '(321) 316-4644',
+          email: settings.restaurant_email || settings.email || 'fun@goodtimesbarandgrill.com',
+          instagram_user_id: instagramData.username,
+          instagram_url: instagramData.url,
+          facebook_user_id: facebookData.username,
+          facebook_url: facebookData.url
+        })
 
-        if (data) {
-          const links: any = {}
-          data.forEach((setting: any) => {
-            let value = setting.value
-            if (typeof value === 'string' && (value.startsWith('"') || value.startsWith('{'))) {
-              try {
-                value = JSON.parse(value)
-              } catch {
-                // Keep as is
-              }
-            }
-            if (typeof value === 'string') {
-              value = value.replace(/^"|"$/g, '')
-            }
-            links[setting.key] = value || ''
-          })
-          setSocialLinks(links)
-        }
       } catch (error) {
-        console.error('Error in fetchSocialLinks:', error)
+        console.error('Error fetching footer data:', error)
+      } finally {
+        setLoading(false)
       }
     }
 
-    fetchSocialLinks()
+    fetchData()
   }, [])
 
   return (
-    <footer className="footer-dark py-16 md:py-20">
+    <footer className="footer-dark pt-10 pb-6 animate-fade-in-up">
       <div className="container-global">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-12 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 mb-6">
           {/* Address & Contact */}
-          <div>
-            <h3 className="card-title mb-6">Location</h3>
-            <div className="space-y-3 body-text">
-              <div className="flex items-start gap-3">
-                <MapPin className="h-5 w-5 text-[#F59E0B] mt-0.5 flex-shrink-0" />
-                <p>1/20 Fennell St, Maitland, FL 32751</p>
+          <div className="animate-fade-in-up stagger-1">
+            <h3 className="card-title mb-2">Location</h3>
+            <div className="space-y-1.5">
+              <div className="flex items-start gap-2 text-sm text-[#D1D5DB]">
+                <MapPin className="h-4 w-4 text-[#F59E0B] flex-shrink-0 mt-0.5" />
+                <p>{siteInfo.address}</p>
               </div>
-              <div className="flex items-center gap-3">
-                <Phone className="h-5 w-5 text-[#F59E0B] flex-shrink-0" />
-                <a href="tel:+13213164644" className="hover:text-[#F59E0B] transition-all duration-300 hover:scale-105 hover:shadow-lg">
-                  (321) 316-4644
+              <div className="flex items-center gap-2 text-sm text-[#D1D5DB]">
+                <Phone className="h-4 w-4 text-[#F59E0B] flex-shrink-0" />
+                <a 
+                  href={`tel:${siteInfo.phone.replace(/\D/g, '')}`} 
+                  className="hover:text-[#F59E0B] transition-colors"
+                >
+                  {siteInfo.phone}
                 </a>
               </div>
-              <div className="flex items-center gap-3">
-                <Mail className="h-5 w-5 text-[#F59E0B] flex-shrink-0" />
-                <a href="mailto:fun@goodtimesbarandgrill.com" className="hover:text-[#F59E0B] transition-all duration-300 hover:scale-105 hover:shadow-lg">
-                  fun@goodtimesbarandgrill.com
+              <div className="flex items-center gap-2 text-sm text-[#D1D5DB]">
+                <Mail className="h-4 w-4 text-[#F59E0B] flex-shrink-0" />
+                <a 
+                  href={`mailto:${siteInfo.email}`} 
+                  className="hover:text-[#F59E0B] transition-colors break-all"
+                >
+                  {siteInfo.email}
                 </a>
               </div>
             </div>
           </div>
 
-          {/* Hours */}
-          <div>
-            <h3 className="card-title mb-6">Hours</h3>
-            <div className="space-y-2 body-text">
-              <p>Monday - Thursday: 4:00 PM - 11:00 PM</p>
-              <p>Friday - Saturday: 4:00 PM - 12:00 AM</p>
-              <p>Sunday: 4:00 PM - 10:00 PM</p>
-            </div>
-          </div>
-
-          {/* Social & Links */}
-          <div>
-            <h3 className="card-title mb-6">Connect</h3>
-            <div className="flex gap-4 mb-8">
-              {socialLinks.instagram_url && (
+          {/* Social */}
+          <div className="animate-fade-in-up stagger-2">
+            <h3 className="card-title mb-2">Connect</h3>
+            <div className="space-y-2.5">
+              {siteInfo.instagram_user_id && (
                 <a
-                  href={socialLinks.instagram_url}
+                  href={siteInfo.instagram_url || `https://instagram.com/${siteInfo.instagram_user_id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-12 h-12 bg-[#111111] border border-white/10 rounded-full flex items-center justify-center hover:bg-[#F59E0B] hover:border-[#F59E0B] transition-all hover:scale-110 shadow-lg hover:shadow-[#F59E0B]/30"
+                  className="flex items-center gap-2 text-sm text-[#D1D5DB] hover:text-[#F59E0B] transition-colors"
                   aria-label="Instagram"
                 >
-                  <Instagram className="h-5 w-5 text-white" />
+                  <Instagram className="h-4 w-4 text-[#F59E0B] flex-shrink-0" />
+                  <span>@{siteInfo.instagram_user_id}</span>
                 </a>
               )}
-              {socialLinks.facebook_url && (
+              {siteInfo.facebook_user_id && (
                 <a
-                  href={socialLinks.facebook_url}
+                  href={siteInfo.facebook_url || `https://facebook.com/${siteInfo.facebook_user_id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-12 h-12 bg-[#111111] border border-white/10 rounded-full flex items-center justify-center hover:bg-[#F59E0B] hover:border-[#F59E0B] transition-all hover:scale-110 shadow-lg hover:shadow-[#F59E0B]/30"
+                  className="flex items-center gap-2 text-sm text-[#D1D5DB] hover:text-[#F59E0B] transition-colors"
                   aria-label="Facebook"
                 >
-                  <Facebook className="h-5 w-5 text-white" />
+                  <Facebook className="h-4 w-4 text-[#F59E0B] flex-shrink-0" />
+                  <span>{siteInfo.facebook_user_id}</span>
                 </a>
               )}
             </div>
-            <div className="space-y-3">
-              <Link href="/menu" className="block body-text hover:text-[#F59E0B] transition-all duration-300 font-medium hover:translate-x-2 hover:shadow-lg">
-                Menu
-              </Link>
-              <Link href="/events" className="block body-text hover:text-[#F59E0B] transition-all duration-300 font-medium hover:translate-x-2 hover:shadow-lg">
-                Events
-              </Link>
-              <Link href="/reservations" className="block body-text hover:text-[#F59E0B] transition-all duration-300 font-medium hover:translate-x-2 hover:shadow-lg">
-                Reservations
-              </Link>
-              <Link href="/gallery" className="block body-text hover:text-[#F59E0B] transition-all duration-300 font-medium hover:translate-x-2 hover:shadow-lg">
-                Gallery
-              </Link>
-            </div>
           </div>
-        </div>
-
-        {/* Google Maps Link */}
-        <div className="border-t border-white/10 pt-8 mt-8">
-          <a
-            href="https://maps.google.com/?q=1/20+Fennell+St,+Maitland,+FL+32751"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-amber-sm inline-flex items-center gap-2"
-          >
-            <MapPin className="h-4 w-4" />
-            View on Google Maps
-          </a>
         </div>
 
         {/* Copyright */}
-        <div className="border-t border-white/10 pt-8 mt-8 text-center">
-          <p className="small-text">
+        <div className="border-t border-white/10 pt-6 mt-6 text-center">
+          <p className="text-xs text-[#D1D5DB] opacity-70">
             © {new Date().getFullYear()} Good Times Bar & Grill. All rights reserved.
           </p>
         </div>

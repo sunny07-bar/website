@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { UtensilsCrossed, Music, Beer, ChefHat, Calendar, MapPin, Clock, ArrowRight, Leaf } from 'lucide-react'
+import { UtensilsCrossed, Music, Beer, ChefHat, Calendar, MapPin, Clock, ArrowRight, Leaf, Mail, Phone } from 'lucide-react'
 import SupabaseImage from '@/components/SupabaseImage'
-import { formatFloridaTime, toFloridaTime } from '@/lib/utils/timezone'
-import { parseISO } from 'date-fns'
+import { formatFloridaTime, convert24To12 } from '@/lib/utils/timezone'
+import { getAllSiteSettings, getOpeningHours } from '@/lib/queries'
 
 interface HomeClientProps {
   banners: any[]
@@ -17,12 +17,39 @@ interface HomeClientProps {
 export default function HomeClient({ banners, featuredItems, upcomingEvents, galleryImages = [] }: HomeClientProps) {
   const validBanners = Array.isArray(banners) ? banners.filter(b => b) : []
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
+  const [openingHours, setOpeningHours] = useState<any[]>([])
+  const [siteInfo, setSiteInfo] = useState({
+    address: '1/20 Fennell St, Maitland, FL 32751',
+    phone: '(321) 316-4644',
+    email: 'fun@goodtimesbarandgrill.com'
+  })
 
   // Limit events to 2 featured
   const featuredEvents = upcomingEvents.slice(0, 2)
   
   // Limit menu items to 4
   const previewMenuItems = featuredItems.slice(0, 4)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch opening hours
+        const hours = await getOpeningHours()
+        setOpeningHours(hours || [])
+        
+        // Fetch site settings (address, phone, email)
+        const settings = await getAllSiteSettings()
+        setSiteInfo({
+          address: settings.restaurant_address || settings.address || '1/20 Fennell St, Maitland, FL 32751',
+          phone: settings.restaurant_phone || settings.phone || '(321) 316-4644',
+          email: settings.restaurant_email || settings.email || 'fun@goodtimesbarandgrill.com'
+        })
+      } catch (error) {
+        console.error('Error fetching data:', error)
+      }
+    }
+    fetchData()
+  }, [])
 
   useEffect(() => {
     if (validBanners.length > 0 && currentBannerIndex >= validBanners.length) {
@@ -52,9 +79,8 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
 
   const formatEventDate = (dateString: string) => {
     try {
-      const date = typeof dateString === 'string' ? parseISO(dateString) : dateString
-      const floridaDate = toFloridaTime(date)
-      return formatFloridaTime(floridaDate, 'MMM d, yyyy')
+      // formatFloridaTime already handles timezone conversion from UTC to Florida time
+      return formatFloridaTime(dateString, 'MMM d, yyyy')
     } catch {
       return ''
     }
@@ -62,9 +88,8 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
 
   const formatEventTime = (dateString: string) => {
     try {
-      const date = typeof dateString === 'string' ? parseISO(dateString) : dateString
-      const floridaDate = toFloridaTime(date)
-      return formatFloridaTime(floridaDate, 'h:mm a')
+      // formatFloridaTime already handles timezone conversion from UTC to Florida time
+      return formatFloridaTime(dateString, 'h:mm a')
     } catch {
       return ''
     }
@@ -74,10 +99,10 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
     <div className="w-full">
       {/* 1️⃣ HERO SECTION */}
       {validBanners.length > 0 && currentBanner ? (
-        <section className="relative w-full overflow-hidden px-4 md:px-6 lg:px-8">
+        <section className="relative w-full px-4 md:px-6 lg:px-8 animate-fade-in mb-16 md:mb-20">
           {currentBanner.cta_link ? (
             <Link href={currentBanner.cta_link} className="block">
-              <div className="relative w-full aspect-[16/10] md:h-[90vh] md:min-h-[700px] rounded-2xl md:rounded-3xl overflow-hidden">
+              <div className="relative w-full aspect-[16/10] md:h-[60vh] md:max-h-[600px] md:min-h-[400px] rounded-3xl md:rounded-3xl overflow-hidden">
                 <div className="absolute inset-0">
                   {validBanners.map((banner, index) => (
                     <div
@@ -87,14 +112,18 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
                       }`}
                     >
                       {banner.image_path ? (
-                        <SupabaseImage
-                          src={banner.image_path}
-                          alt={banner.title || 'Banner'}
-                          fill
-                          className="object-cover"
-                          priority={index === 0}
-                          bucket="banners"
-                        />
+                        <>
+                          <SupabaseImage
+                            src={banner.image_path}
+                            alt={banner.title || 'Banner'}
+                            fill
+                            className="object-cover object-center"
+                            priority={index === 0}
+                            bucket="banners"
+                          />
+                          {/* Strong dark gradient overlay - center to bottom, stronger on mobile for tall images */}
+                          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/40 to-black/80 md:from-transparent md:via-black/25 md:to-black/85"></div>
+                        </>
                       ) : (
                         <div className="absolute inset-0 bg-gradient-to-br from-[#0E0E0E] to-[#111111]"></div>
                       )}
@@ -104,7 +133,7 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
               </div>
             </Link>
           ) : (
-            <div className="relative w-full aspect-[16/10] md:h-[90vh] md:min-h-[700px] rounded-2xl md:rounded-3xl overflow-hidden">
+            <div className="relative w-full aspect-[16/10] md:h-[60vh] md:max-h-[600px] md:min-h-[400px] rounded-3xl md:rounded-3xl overflow-hidden">
               <div className="absolute inset-0">
                 {validBanners.map((banner, index) => (
                   <div
@@ -114,14 +143,18 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
                     }`}
                   >
                     {banner.image_path ? (
-                      <SupabaseImage
-                        src={banner.image_path}
-                        alt={banner.title || 'Banner'}
-                        fill
-                        className="object-cover"
-                        priority={index === 0}
-                        bucket="banners"
-                      />
+                      <>
+                        <SupabaseImage
+                          src={banner.image_path}
+                          alt={banner.title || 'Banner'}
+                          fill
+                          className="object-cover object-center"
+                          priority={index === 0}
+                          bucket="banners"
+                        />
+                        {/* Strong dark gradient overlay - center to bottom, stronger on mobile for tall images */}
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/40 to-black/80 md:from-transparent md:via-black/25 md:to-black/85"></div>
+                      </>
                     ) : (
                       <div className="absolute inset-0 bg-gradient-to-br from-[#0E0E0E] to-[#111111]"></div>
                     )}
@@ -132,21 +165,21 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
           )}
         </section>
       ) : (
-        <section className="relative w-full h-[75vh] md:h-[90vh] min-h-[500px] md:min-h-[700px] bg-[#0E0E0E] overflow-hidden">
-          <div className="absolute inset-0 bg-black/60 z-10"></div>
+        <section className="relative w-full h-[75vh] md:h-[60vh] md:max-h-[600px] min-h-[500px] md:min-h-[400px] bg-gradient-dark overflow-hidden bg-pattern-overlay">
+          <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-black/80 z-10"></div>
           <div className="absolute inset-0 flex items-center justify-center z-20">
             <div className="container-global text-center text-white px-4">
-              <div className="animate-fade-in-up max-w-4xl mx-auto">
-                <h1 className="hero-heading mb-4 md:mb-6">Good Times. Great Food. Live Music.</h1>
-                <p className="hero-subheading mb-8 md:mb-10 max-w-2xl mx-auto">
+              <div className="animate-fade-in-up-enhanced max-w-4xl mx-auto">
+                <h1 className="hero-heading mb-4 md:mb-6 text-gradient-amber drop-shadow-2xl">Good Times. Great Food. Live Music.</h1>
+                <p className="hero-subheading mb-8 md:mb-10 max-w-2xl mx-auto opacity-95">
                   Experience the best nights in town with live bands, handcrafted drinks, and unforgettable vibes.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                   <Link href="/events">
-                    <button className="btn-amber text-lg px-8 py-4 min-h-[44px]">Explore Events</button>
+                    <button className="btn-premium text-lg px-8 py-4 min-h-[44px] text-black font-bold shadow-xl hover:shadow-2xl">Explore Events</button>
                   </Link>
                   <Link href="/menu">
-                    <button className="bg-transparent border-2 border-white/30 hover:border-[#F59E0B] text-white px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 hover:bg-white/5 min-h-[44px]">
+                    <button className="bg-transparent border-2 border-white/30 hover:border-[#F59E0B] text-white px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 hover:bg-white/5 min-h-[44px] hover:scale-105 hover:shadow-lg hover:shadow-[#F59E0B]/30">
                       View Menu
                     </button>
                   </Link>
@@ -161,9 +194,16 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
       {featuredEvents.length > 0 && (
         <section className="section-bg-primary section-spacing">
           <div className="container-global">
-            <div className="text-center mb-12 md:mb-16">
-              <h2 className="section-title mb-4">Upcoming Live Events</h2>
-              <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full"></div>
+            <div className="text-center mb-12 md:mb-16 animate-fade-in-up">
+              {/* Subtle glow/radial light behind section title */}
+              <div className="relative inline-block">
+                <div className="absolute inset-0 bg-[#F59E0B]/10 blur-3xl rounded-full -z-10 transform scale-150"></div>
+                <h2 className="section-title mb-4 text-gradient-amber relative z-10">Upcoming Live Events</h2>
+              </div>
+              <div className="section-divider-enhanced mb-6"></div>
+              <p className="body-text max-w-2xl mx-auto text-lg opacity-90">
+                Join us for electrifying performances and unforgettable nights
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-5xl mx-auto mb-10">
@@ -171,7 +211,8 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
                 <Link
                   key={event.id}
                   href={`/events/${encodeURIComponent(event.slug)}`}
-                  className="event-item-card group cursor-pointer"
+                  className="event-item-card group cursor-pointer card-hover-lift animate-fade-in-up"
+                  style={{ animationDelay: `${index * 0.15}s` }}
                 >
                   {event.image_path ? (
                     <div className="relative aspect-[16/10] rounded-xl overflow-hidden mb-4">
@@ -220,7 +261,7 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
 
             <div className="text-center">
               <Link href="/events">
-                <button className="inline-flex items-center gap-2 bg-transparent border-2 border-[#F59E0B] hover:bg-[#F59E0B] text-[#F59E0B] hover:text-black px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 min-h-[44px]">
+                <button className="inline-flex items-center gap-2 btn-premium text-black font-bold px-8 py-4 rounded-xl text-lg min-h-[44px] shadow-xl hover:shadow-2xl">
                   Explore More Events
                   <ArrowRight className="h-5 w-5" />
                 </button>
@@ -234,9 +275,12 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
       {previewMenuItems.length > 0 && (
         <section className="section-bg-alt section-spacing">
           <div className="container-global">
-            <div className="text-center mb-12 md:mb-16">
-              <h2 className="section-title mb-4">Signature Dishes & Craft Drinks</h2>
-              <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full"></div>
+            <div className="text-center mb-12 md:mb-16 animate-fade-in-up">
+              <h2 className="section-title mb-4 text-gradient-amber">Signature Dishes & Craft Drinks</h2>
+              <div className="section-divider-enhanced mb-6"></div>
+              <p className="body-text max-w-2xl mx-auto text-lg opacity-90">
+                Handcrafted with passion, served with excellence
+              </p>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 lg:gap-8 mb-10">
@@ -247,8 +291,8 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
                 return (
                   <div 
                     key={item.id} 
-                    className="menu-item-card-premium animate-fade-in-up group rounded-xl md:rounded-2xl" 
-                    style={{ animationDelay: `${index * 0.05}s` }}
+                    className="menu-item-card-premium animate-fade-in-up-enhanced group rounded-xl md:rounded-2xl card-hover-premium" 
+                    style={{ animationDelay: `${index * 0.1}s` }}
                   >
                     {/* Image Section */}
                     {item.image_path ? (
@@ -312,7 +356,7 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
 
             <div className="text-center">
               <Link href="/menu">
-                <button className="inline-flex items-center gap-2 bg-transparent border-2 border-[#F59E0B] hover:bg-[#F59E0B] text-[#F59E0B] hover:text-black px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 min-h-[44px]">
+                <button className="inline-flex items-center gap-2 btn-premium text-black font-bold px-8 py-4 rounded-xl text-lg min-h-[44px] shadow-xl hover:shadow-2xl">
                   View Full Menu
                   <ArrowRight className="h-5 w-5" />
                 </button>
@@ -325,9 +369,12 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
       {/* 4️⃣ EXPERIENCE / VIBE SECTION */}
       <section className="section-bg-primary section-spacing">
         <div className="container-global">
-          <div className="text-center mb-12 md:mb-16">
-            <h2 className="section-title mb-4">More Than Food. It's an Experience.</h2>
-            <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full"></div>
+          <div className="text-center mb-12 md:mb-16 animate-fade-in-up">
+            <h2 className="section-title mb-4 text-gradient-amber">More Than Food. It's an Experience.</h2>
+            <div className="section-divider-enhanced mb-6"></div>
+            <p className="body-text max-w-2xl mx-auto text-lg opacity-90">
+              Where great food, live music, and amazing vibes come together
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 max-w-6xl mx-auto">
@@ -355,7 +402,8 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
             ].map((item, index) => (
               <div
                 key={index}
-                className="event-item-card text-center group hover:border-[#F59E0B]/50 transition-all duration-300"
+                className="event-item-card text-center group hover:border-[#F59E0B]/50 transition-all duration-300 card-hover-lift animate-fade-in-up"
+                style={{ animationDelay: `${index * 0.1}s` }}
               >
                 <div className="mb-4 flex justify-center">
                   <div className="bg-[#F59E0B]/10 rounded-full p-4 group-hover:bg-[#F59E0B]/20 transition-colors">
@@ -373,9 +421,12 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
       {/* 5️⃣ GALLERY PREVIEW */}
       <section className="section-bg-alt section-spacing-sm">
         <div className="container-global">
-          <div className="text-center mb-8 md:mb-12">
-            <h2 className="section-title mb-4">Atmosphere & Vibes</h2>
-            <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full"></div>
+          <div className="text-center mb-8 md:mb-12 animate-fade-in-up">
+            <h2 className="section-title mb-4 text-gradient-amber">Atmosphere & Vibes</h2>
+            <div className="section-divider-enhanced mb-6"></div>
+            <p className="body-text max-w-2xl mx-auto text-lg opacity-90">
+              Experience the energy and ambiance that makes every visit special
+            </p>
           </div>
 
           <div className="overflow-x-auto scrollbar-hide pb-4">
@@ -384,7 +435,7 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
                 galleryImages.map((image) => (
                   <div
                     key={image.id}
-                    className="gallery-item-card w-[280px] md:w-auto aspect-square flex-shrink-0"
+                    className="gallery-item-card w-[180px] sm:w-[220px] md:w-auto aspect-square flex-shrink-0"
                   >
                     {image.image_path ? (
                       <SupabaseImage
@@ -405,7 +456,7 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
                 [1, 2, 3, 4].map((i) => (
                   <div
                     key={i}
-                    className="gallery-item-card w-[280px] md:w-auto aspect-square flex-shrink-0"
+                    className="gallery-item-card w-[180px] sm:w-[220px] md:w-auto aspect-square flex-shrink-0"
                   >
                     <div className="h-full w-full bg-gradient-to-br from-[#F59E0B]/20 to-[#F59E0B]/10 flex items-center justify-center">
                       <Music className="h-16 w-16 text-[#F59E0B] opacity-30" />
@@ -418,7 +469,7 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
 
           <div className="text-center mt-8">
             <Link href="/gallery">
-              <button className="inline-flex items-center gap-2 bg-transparent border-2 border-[#F59E0B] hover:bg-[#F59E0B] text-[#F59E0B] hover:text-black px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 min-h-[44px]">
+              <button className="inline-flex items-center gap-2 btn-premium text-black font-bold px-8 py-4 rounded-xl text-lg min-h-[44px] shadow-xl hover:shadow-2xl">
                 View Full Gallery
                 <ArrowRight className="h-5 w-5" />
               </button>
@@ -431,65 +482,123 @@ export default function HomeClient({ banners, featuredItems, upcomingEvents, gal
       <section className="section-bg-primary section-spacing-sm">
         <div className="container-global">
           <div className="text-center mb-12">
-            <h2 className="section-title mb-4">Visit Us</h2>
-            <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full"></div>
+            <h2 className="section-title mb-4 text-gradient-amber">Visit Us</h2>
+            <div className="section-divider-enhanced mb-6"></div>
+            <p className="body-text max-w-2xl mx-auto text-lg opacity-90">
+              We're here to make your experience unforgettable
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
-            {/* Map Placeholder */}
-            <div className="event-item-card p-0 overflow-hidden">
-              <div className="aspect-[4/3] bg-gradient-to-br from-[#F59E0B]/20 to-[#F59E0B]/10 flex items-center justify-center">
-                <MapPin className="h-16 w-16 text-[#F59E0B] opacity-30" />
-                <p className="body-text ml-4">Google Map will be embedded here</p>
-              </div>
-            </div>
-
-            {/* Info */}
-            <div className="space-y-6">
+          <div className="max-w-6xl mx-auto">
+            {/* All three cards in a row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="event-item-card">
                 <h3 className="card-title mb-4">Location</h3>
                 <div className="flex items-start gap-3 mb-4">
                   <MapPin className="h-5 w-5 text-[#F59E0B] mt-1 flex-shrink-0" />
-                  <p className="body-text">123 Main Street, City, State 12345</p>
+                  <p className="body-text">{siteInfo.address}</p>
                 </div>
-                <Link href="#" target="_blank">
+                <a 
+                  href={`https://maps.google.com/?q=${encodeURIComponent(siteInfo.address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <button className="btn-amber-sm w-full sm:w-auto">
                     Get Directions
                   </button>
-                </Link>
+                </a>
               </div>
+
+              <ContactCard />
 
               <div className="event-item-card">
                 <h3 className="card-title mb-4">Opening Hours</h3>
                 <div className="space-y-2 body-text">
-                  <div className="flex justify-between">
-                    <span>Monday - Thursday</span>
-                    <span>5:00 PM - 12:00 AM</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Friday - Saturday</span>
-                    <span>5:00 PM - 2:00 AM</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Sunday</span>
-                    <span>4:00 PM - 11:00 PM</span>
-                  </div>
+                  {openingHours.length > 0 ? (
+                    openingHours.map((hour: any) => {
+                      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                      const dayName = dayNames[hour.weekday] || `Day ${hour.weekday}`
+                      const timeDisplay = hour.is_closed 
+                        ? 'Closed' 
+                        : hour.open_time && hour.close_time
+                        ? `${convert24To12(hour.open_time)} - ${convert24To12(hour.close_time)}`
+                        : 'Closed'
+                      
+                      return (
+                        <div key={hour.weekday} className="flex justify-between">
+                          <span>{dayName}</span>
+                          <span>{timeDisplay}</span>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <>
+                      <div className="flex justify-between">
+                        <span>Monday - Thursday</span>
+                        <span>5:00 PM - 12:00 AM</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Friday - Saturday</span>
+                        <span>5:00 PM - 2:00 AM</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Sunday</span>
+                        <span>4:00 PM - 11:00 PM</span>
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
-
-              <div className="event-item-card">
-                <h3 className="card-title mb-4">Contact</h3>
-                <p className="body-text mb-4">Phone: (555) 123-4567</p>
-                <Link href="/contact">
-                  <button className="btn-amber-sm w-full sm:w-auto">
-                    Contact Us
-                  </button>
-                </Link>
               </div>
             </div>
           </div>
         </div>
       </section>
+    </div>
+  )
+}
+
+// Contact Card Component
+function ContactCard() {
+  const [contactInfo, setContactInfo] = useState({
+    phone: '(321) 316-4644',
+    email: 'fun@goodtimesbarandgrill.com'
+  })
+
+  useEffect(() => {
+    const fetchContactInfo = async () => {
+      try {
+        const settings = await getAllSiteSettings()
+        setContactInfo({
+          phone: settings.restaurant_phone || settings.phone || '(321) 316-4644',
+          email: settings.restaurant_email || settings.email || 'fun@goodtimesbarandgrill.com'
+        })
+      } catch (error) {
+        console.error('Error fetching contact info:', error)
+      }
+    }
+    fetchContactInfo()
+  }, [])
+
+  return (
+    <div className="event-item-card">
+      <h3 className="card-title mb-4">Contact</h3>
+      <div className="space-y-3 mb-4">
+        <div className="flex items-start gap-3">
+          <Phone className="h-5 w-5 text-[#F59E0B] mt-1 flex-shrink-0" />
+          <p className="body-text">{contactInfo.phone}</p>
+        </div>
+        <div className="flex items-start gap-3">
+          <Mail className="h-5 w-5 text-[#F59E0B] mt-1 flex-shrink-0" />
+          <a href={`mailto:${contactInfo.email}`} className="body-text hover:text-[#F59E0B] transition-colors break-all">
+            {contactInfo.email}
+          </a>
+        </div>
+      </div>
+      <Link href="/contact">
+        <button className="btn-amber-sm w-full sm:w-auto">
+          Contact Us
+        </button>
+      </Link>
     </div>
   )
 }

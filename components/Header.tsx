@@ -24,6 +24,11 @@ export default function Header() {
 
   useEffect(() => {
     const fetchLogo = async () => {
+      if (!supabase) {
+        console.warn('Supabase client not available')
+        return
+      }
+
       try {
         const { data: settings } = await supabase
           .from('site_settings')
@@ -57,17 +62,17 @@ export default function Header() {
   }
 
   return (
-    <header className={`sticky top-0 z-50 w-full transition-all duration-300 ${
+    <header className={`sticky top-0 z-50 w-full transition-all duration-500 ease-out ${
       // Always blurred on mobile, blurred on desktop when scrolled or menu open
       scrolled || mobileMenuOpen
-        ? 'bg-[#0E0E0E]/98 backdrop-blur-md border-b border-white/10 shadow-xl' 
+        ? 'bg-[#0E0E0E]/98 backdrop-blur-xl border-b border-white/10 shadow-2xl glass-effect' 
         : 'bg-[#0E0E0E]/98 lg:bg-transparent backdrop-blur-md lg:backdrop-blur-none border-b border-white/10 lg:border-b-0'
     }`}>
       <nav className="relative">
         <div className="container-global">
           <div className="flex items-center justify-between h-20 md:h-24">
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-3 hover-scale transition-transform group z-10">
+            <Link href="/" className="flex items-center gap-3 hover-scale transition-all duration-300 group z-10 magnetic-hover">
               <div className="flex items-center gap-3">
                 {logoUrl ? (
                   <div className="rounded-lg p-1 transition-all group-hover:scale-105">
@@ -196,7 +201,7 @@ export default function Header() {
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div className="lg:hidden absolute top-full left-0 right-0 bg-[#0E0E0E]/95 backdrop-blur-xl border-t border-white/10 shadow-xl">
+          <div className="lg:hidden absolute top-full left-0 right-0 bg-[#0E0E0E]/95 backdrop-blur-xl border-t border-white/10 shadow-xl animate-fade-in-down">
             <div className="container-global py-6 space-y-2">
               <Link 
                 href="/" 

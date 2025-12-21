@@ -6,6 +6,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { ticketId: string } }
 ) {
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Database service unavailable. Please check configuration.' },
+      { status: 503 }
+    )
+  }
+
   try {
     const { data: ticket, error } = await supabase
       .from('purchased_tickets')

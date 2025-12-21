@@ -1,17 +1,41 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-if (!supabaseUrl || !supabaseAnonKey) {
+let supabase: SupabaseClient | null = null
+
+if (supabaseUrl && supabaseAnonKey) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+      },
+    })
+  } catch (error) {
+    console.error('Failed to initialize Supabase client:', error)
+    supabase = null
+  }
+} else {
   console.warn('Supabase credentials are missing. Please check your .env.local file.')
+  console.warn('The app will run in limited mode without database connectivity.')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: false,
-  },
-})
+// Export a safe client that can be null
+export { supabase }
+
+// Helper function to check if supabase is available
+export function isSupabaseAvailable(): boolean {
+  return supabase !== null
+}
+
+// Helper function to get supabase or throw a helpful error
+export function getSupabaseClient(): SupabaseClient {
+  if (!supabase) {
+    throw new Error('Supabase client is not initialized. Please check your environment variables.')
+  }
+  return supabase
+}
 
 // Database types based on schema
 export type OrderType = 'pickup' | 'delivery' | 'dine_in'

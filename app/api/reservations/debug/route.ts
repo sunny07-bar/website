@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
     const slots = await getAvailableTimeSlots(date, 2)
 
     // Get regular hours for comparison
+    if (!supabase) {
+      return NextResponse.json({ error: 'Database not available' }, { status: 503 })
+    }
+    
     const { data: openingHours } = await supabase
       .from('opening_hours')
       .select('*')

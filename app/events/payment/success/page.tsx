@@ -47,6 +47,11 @@ function TicketPaymentSuccessPageContent() {
         }
 
         // Get event slug for redirect
+        if (!supabase) {
+          console.error('Supabase client not available')
+          return
+        }
+        
         const { data: ticketOrder } = await supabase
           .from('ticket_orders')
           .select('events(slug)')

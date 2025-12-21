@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
 import { getEventsForDate, checkEventConflict } from '@/lib/queries'
+import { formatFloridaTime } from '@/lib/utils/timezone'
 
 export async function POST(request: NextRequest) {
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Database service unavailable. Please check configuration.' },
+      { status: 503 }
+    )
+  }
+
   try {
     const body = await request.json()
     const {
@@ -44,22 +52,16 @@ export async function POST(request: NextRequest) {
       )
 
       if (hasConflict && conflictingEvent) {
-        const eventStart = new Date(conflictingEvent.event_start)
-        const eventEnd = conflictingEvent.event_end 
-          ? new Date(conflictingEvent.event_end)
-          : new Date(eventStart.getTime() + 3 * 60 * 60 * 1000)
+        // Format event times in Florida timezone for error message
+        const eventStart = conflictingEvent.event_start
+        const eventEnd = conflictingEvent.event_end || null
         
-        const formatTime = (date: Date) => {
-          return date.toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
-            minute: '2-digit',
-            hour12: true 
-          })
-        }
+        const startTimeFormatted = formatFloridaTime(eventStart, 'h:mm a')
+        const endTimeFormatted = eventEnd ? formatFloridaTime(eventEnd, 'h:mm a') : 'TBD'
 
         return NextResponse.json(
           { 
-            error: `This time conflicts with an event: "${conflictingEvent.title}" (${formatTime(eventStart)} - ${formatTime(eventEnd)}). Please select a different time or purchase event tickets instead.`,
+            error: `This time conflicts with an event: "${conflictingEvent.title}" (${startTimeFormatted} - ${endTimeFormatted} Florida Time). Please select a different time or purchase event tickets instead.`,
             eventConflict: true,
             event: {
               id: conflictingEvent.id,

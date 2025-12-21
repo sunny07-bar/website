@@ -195,6 +195,11 @@ export async function getEvents(featured?: boolean) {
 
 export async function getEventBySlug(slug: string) {
   try {
+    if (!supabase) {
+      console.error('Supabase client not available')
+      return null
+    }
+    
     // Decode URL-encoded slug (handles %20 for spaces, etc.)
     const decodedSlug = decodeURIComponent(slug)
     
@@ -378,6 +383,11 @@ export function isTimeSlotBlockedByEvent(
 // Offers
 export async function getActiveOffers() {
   try {
+    if (!supabase) {
+      console.error('Supabase client not available')
+      return []
+    }
+    
     const now = getFloridaNow().toISOString()
     let query = supabase
       .from('offers')
@@ -444,6 +454,11 @@ export async function getGalleryImages(category?: string, limit?: number) {
 // Static Sections
 export async function getStaticSection(sectionKey: string) {
   try {
+    if (!supabase) {
+      console.error('Supabase client not available')
+      return null
+    }
+    
     const { data, error } = await supabase
       .from('static_sections')
       .select('*')
@@ -464,6 +479,11 @@ export async function getStaticSection(sectionKey: string) {
 // Opening Hours
 export async function getOpeningHours() {
   try {
+    if (!supabase) {
+      console.error('Supabase client not available')
+      return []
+    }
+    
     const { data, error } = await supabase
       .from('opening_hours')
       .select('*')
@@ -725,6 +745,11 @@ export async function getAvailableTimeSlots(date: string, guestCount: number = 2
 
 // Site Settings
 export async function getSiteSetting(key: string) {
+  if (!supabase) {
+    console.error('Supabase client not available')
+    return null
+  }
+  
   const { data, error } = await supabase
     .from('site_settings')
     .select('*')
@@ -736,5 +761,53 @@ export async function getSiteSetting(key: string) {
     return null
   }
   return data
+}
+
+// Get all site settings at once (address, phone, email, social links, etc.)
+export async function getAllSiteSettings() {
+  try {
+    if (!supabase) {
+      console.error('Supabase client not available')
+      return {}
+    }
+
+    const { data, error } = await supabase
+      .from('site_settings')
+      .select('key, value')
+
+    if (error) {
+      logQueryError('getAllSiteSettings', error, 'site_settings')
+      return {}
+    }
+
+    // Convert array to object
+    const settings: Record<string, any> = {}
+    if (data) {
+      data.forEach((setting: any) => {
+        let value = setting.value
+        
+        // Handle JSON strings
+        if (typeof value === 'string' && (value.startsWith('"') || value.startsWith('{'))) {
+          try {
+            value = JSON.parse(value)
+          } catch {
+            // Keep as is if parsing fails
+          }
+        }
+        
+        // Remove quotes from string values
+        if (typeof value === 'string') {
+          value = value.replace(/^"|"$/g, '')
+        }
+        
+        settings[setting.key] = value
+      })
+    }
+
+    return settings
+  } catch (error) {
+    console.error('Error in getAllSiteSettings:', error)
+    return {}
+  }
 }
 

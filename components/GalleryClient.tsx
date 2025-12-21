@@ -45,9 +45,9 @@ export default function GalleryClient({ initialImages }: GalleryClientProps) {
     <div className="section-bg-primary section-spacing">
       <div className="container-global">
         <div className="text-center mb-8 md:mb-12 animate-fade-in">
-          <h1 className="section-title mb-4">GALLERY</h1>
-          <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full mb-6"></div>
-          <p className="body-text max-w-3xl mx-auto">
+          <h1 className="section-title mb-4 text-gradient-amber">GALLERY</h1>
+          <div className="section-divider-enhanced mb-6"></div>
+          <p className="body-text max-w-3xl mx-auto text-lg opacity-90">
             Take a look at our food, ambience, and events through our photo gallery.
           </p>
         </div>
@@ -79,7 +79,7 @@ export default function GalleryClient({ initialImages }: GalleryClientProps) {
           {filteredImages.map((image, index) => (
             <div
               key={image.id}
-              className="gallery-item-card cursor-pointer aspect-square animate-fade-in-up group"
+              className="gallery-item-card cursor-pointer aspect-square animate-fade-in-up-enhanced group card-hover-premium"
               style={{ animationDelay: `${index * 0.05}s` }}
               onClick={() => setSelectedImage(index)}
             >

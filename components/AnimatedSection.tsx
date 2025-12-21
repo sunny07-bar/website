@@ -6,7 +6,7 @@ interface AnimatedSectionProps {
   children: ReactNode
   className?: string
   delay?: number
-  direction?: 'up' | 'down' | 'left' | 'right' | 'scale'
+  direction?: 'up' | 'down' | 'left' | 'right' | 'scale' | 'fade'
 }
 
 export default function AnimatedSection({
@@ -28,7 +28,6 @@ export default function AnimatedSection({
           setTimeout(() => {
             setIsVisible(true)
           }, delay)
-          // Unobserve after animation starts for better performance
           observer.unobserve(element)
         }
       },
@@ -45,20 +44,36 @@ export default function AnimatedSection({
     }
   }, [delay])
 
-  const getAnimationClass = () => {
+  const getTransform = () => {
     if (!isVisible) {
-      return 'opacity-0'
+      switch (direction) {
+        case 'up':
+          return 'translateY(30px)'
+        case 'down':
+          return 'translateY(-30px)'
+        case 'left':
+          return 'translateX(-30px)'
+        case 'right':
+          return 'translateX(30px)'
+        case 'scale':
+          return 'scale(0.9)'
+        default:
+          return 'translateY(30px)'
+      }
     }
-    return 'opacity-100'
+    return 'translateY(0) translateX(0) scale(1)'
   }
 
   return (
     <div
       ref={ref}
-      className={`transition-opacity duration-300 ease-out ${getAnimationClass()} ${className}`}
+      className={`transition-all duration-700 ease-out ${className}`}
+      style={{
+        opacity: isVisible ? 1 : 0,
+        transform: getTransform(),
+      }}
     >
       {children}
     </div>
   )
 }
-

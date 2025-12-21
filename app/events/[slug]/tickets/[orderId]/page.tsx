@@ -35,6 +35,11 @@ export default function TicketConfirmationPage() {
 
   const loadRestaurantInfo = async () => {
     try {
+      if (!supabase) {
+        console.warn('Supabase client not available')
+        return
+      }
+      
       const { data: settings } = await supabase
         .from('site_settings')
         .select('key, value')
@@ -80,6 +85,11 @@ export default function TicketConfirmationPage() {
 
   const loadTickets = async () => {
     try {
+      if (!supabase) {
+        console.error('Supabase client not available')
+        return
+      }
+      
       const { data: orderData, error: orderError } = await supabase
         .from('ticket_orders')
         .select(`
@@ -222,12 +232,19 @@ export default function TicketConfirmationPage() {
       pdf.setFont('helvetica', 'normal')
       let textY = yPos + 16
 
-      // Event Date
+      // Event Date and Time (EST only - no other times shown)
       if (order?.events?.event_start) {
         const eventDate = toFloridaTime(order.events.event_start)
         pdf.text(`Date: ${formatFloridaTime(eventDate, 'EEEE, MMMM d, yyyy')}`, margin + 8, textY)
         textY += 6
-        pdf.text(`Time: ${formatFloridaTime(eventDate, 'h:mm a')}`, margin + 8, textY)
+        pdf.text(`Time: ${formatFloridaTime(eventDate, 'h:mm a')} EST`, margin + 8, textY)
+        textY += 6
+      }
+      
+      // Event End Time (if available)
+      if (order?.events?.event_end) {
+        const eventEndDate = toFloridaTime(order.events.event_end)
+        pdf.text(`End Time: ${formatFloridaTime(eventEndDate, 'h:mm a')} EST`, margin + 8, textY)
         textY += 6
       }
 

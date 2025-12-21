@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Calendar, Clock, Users, CheckCircle, AlertCircle, Sparkles, Info } from 'lucide-react'
 import { getSpecialHoursForDate, getAvailableTimeSlots, getOpeningHours, getEventsForDate } from '@/lib/queries'
 import AnimatedSection from '@/components/AnimatedSection'
-import { getFloridaToday } from '@/lib/utils/timezone'
+import { getFloridaToday, convert24To12, getDayOfWeekInFlorida, formatFloridaTime, toFloridaTime, floridaToUTC } from '@/lib/utils/timezone'
+import { parseISO } from 'date-fns'
 
 export default function ReservationsPage() {
   const [formData, setFormData] = useState({
@@ -33,6 +34,34 @@ export default function ReservationsPage() {
 
   // Get today's date in YYYY-MM-DD format (Florida timezone)
   const today = getFloridaToday()
+
+  // Helper function to check if a time is within special hours range
+  const isTimeWithinSpecialHours = (time: string, specialHours: any): boolean => {
+    if (!specialHours || !specialHours.time_from || !specialHours.time_to || !time) {
+      return false
+    }
+
+    // Parse time strings (HH:MM format)
+    const parseTime = (timeStr: string) => {
+      const parts = timeStr.split(':')
+      return {
+        hour: parseInt(parts[0]) || 0,
+        minute: parseInt(parts[1]) || 0
+      }
+    }
+
+    const selectedTime = parseTime(time)
+    const startTime = parseTime(specialHours.time_from)
+    const endTime = parseTime(specialHours.time_to)
+
+    // Convert times to minutes for easier comparison
+    const selectedMinutes = selectedTime.hour * 60 + selectedTime.minute
+    const startMinutes = startTime.hour * 60 + startTime.minute
+    const endMinutes = endTime.hour * 60 + endTime.minute
+
+    // Check if selected time is within range (inclusive)
+    return selectedMinutes >= startMinutes && selectedMinutes <= endMinutes
+  }
 
   // Load special hours and available slots when date or guest count changes
   useEffect(() => {
@@ -76,7 +105,8 @@ export default function ReservationsPage() {
       } else {
         // No special hours - use regular opening hours
         const openingHours = await getOpeningHours()
-        const dayOfWeek = new Date(formData.reservationDate).getDay()
+        // Use Florida timezone to determine day of week
+        const dayOfWeek = getDayOfWeekInFlorida(formData.reservationDate)
         const hours = openingHours.find(h => h.weekday === dayOfWeek)
         console.log('[ReservationsPage] Regular hours for weekday', dayOfWeek, ':', hours)
         setRegularHours(hours)
@@ -122,10 +152,15 @@ export default function ReservationsPage() {
     setAvailabilityError(null)
 
     try {
+      // Only apply special hours rules if the selected time is within special hours range
+      const isWithinSpecialHours = specialHoursInfo && formData.reservationTime
+        ? isTimeWithinSpecialHours(formData.reservationTime, specialHoursInfo)
+        : false
+
       const payload: any = {
         ...formData,
-        specialHoursId: specialHoursInfo?.id || null,
-        customFields: Object.keys(customFields).length > 0 ? customFields : null,
+        specialHoursId: isWithinSpecialHours ? specialHoursInfo?.id || null : null,
+        customFields: isWithinSpecialHours && Object.keys(customFields).length > 0 ? customFields : null,
       }
 
       const response = await fetch('/api/reservations', {
@@ -178,11 +213,10 @@ export default function ReservationsPage() {
   }
 
   const formatTime = (time: string) => {
-    const [hours, minutes] = time.split(':')
-    const hour = parseInt(hours)
-    const ampm = hour >= 12 ? 'PM' : 'AM'
-    const displayHour = hour % 12 || 12
-    return `${displayHour}:${minutes} ${ampm}`
+    if (!time) return ''
+    // Use convert24To12 to match event time formatting (h:mm a format)
+    // Times are stored as time-of-day strings in Florida timezone
+    return convert24To12(time)
   }
 
   return (
@@ -229,6 +263,7 @@ export default function ReservationsPage() {
                           <span className="font-semibold">
                             {formatTime(specialHoursInfo.time_from)} - {formatTime(specialHoursInfo.time_to)}
                           </span>
+                          <span className="text-xs text-amber-400/80">(Florida Time)</span>
                         </p>
                       )}
                       {specialHoursInfo.note && (
@@ -247,7 +282,7 @@ export default function ReservationsPage() {
                     <p className="text-body-small font-medium">
                       {regularHours.is_closed 
                         ? 'We are closed on this day'
-                        : `Regular hours: ${formatTime(regularHours.open_time)} - ${formatTime(regularHours.close_time)}`
+                        : `Regular hours: ${formatTime(regularHours.open_time)} - ${formatTime(regularHours.close_time)} (Florida Time)`
                       }
                     </p>
                   </div>
@@ -270,30 +305,37 @@ export default function ReservationsPage() {
                       </div>
                       <div className="space-y-2.5 mb-4">
                         {eventsOnDate.map((event) => {
-                          const eventStart = new Date(event.event_start)
-                          const eventEnd = event.event_end 
-                            ? new Date(event.event_end)
-                            : new Date(eventStart.getTime() + 3 * 60 * 60 * 1000)
-                          const bufferStart = new Date(eventStart.getTime() - 2 * 60 * 60 * 1000) // 2 hours before
-                          const bufferEnd = new Date(eventEnd.getTime() + 2 * 60 * 60 * 1000) // 2 hours after
+                          // Event times are stored in UTC, formatFloridaTime converts to Florida timezone for display
+                          const eventStart = event.event_start
+                          const eventEnd = event.event_end || null
                           
-                          const formatDateTime = (date: Date) => {
-                            return date.toLocaleTimeString('en-US', { 
-                              hour: 'numeric', 
-                              minute: '2-digit',
-                              hour12: true 
-                            })
-                          }
+                          // For buffer calculation: convert UTC to Florida time, add/subtract buffer, then convert back to UTC for formatting
+                          const eventStartDate = typeof eventStart === 'string' ? parseISO(eventStart) : new Date(eventStart)
+                          const eventEndDate = eventEnd 
+                            ? (typeof eventEnd === 'string' ? parseISO(eventEnd) : new Date(eventEnd))
+                            : new Date(eventStartDate.getTime() + 3 * 60 * 60 * 1000)
+                          
+                          // Convert to Florida timezone
+                          const eventStartFlorida = toFloridaTime(eventStartDate)
+                          const eventEndFlorida = toFloridaTime(eventEndDate)
+                          
+                          // Calculate buffer times in Florida timezone (2 hours before/after)
+                          const bufferStartFlorida = new Date(eventStartFlorida.getTime() - 2 * 60 * 60 * 1000)
+                          const bufferEndFlorida = new Date(eventEndFlorida.getTime() + 2 * 60 * 60 * 1000)
+                          
+                          // Convert buffer times back to UTC for formatting (formatFloridaTime expects UTC dates)
+                          const bufferStartUTC = floridaToUTC(bufferStartFlorida)
+                          const bufferEndUTC = floridaToUTC(bufferEndFlorida)
                           
                           return (
                             <div key={event.id} className="bg-blue-500/5 rounded-lg p-3 border border-blue-500/20">
                               <p className="font-semibold text-blue-400 mb-1.5 text-body-small">{event.title}</p>
                               <p className="text-body-small text-blue-300 mb-2">
                                 <Clock className="h-3.5 w-3.5 inline mr-1" />
-                                Event: {formatDateTime(eventStart)} - {formatDateTime(eventEnd)}
+                                Event: {formatFloridaTime(eventStart, 'h:mm a')} - {eventEnd ? formatFloridaTime(eventEnd, 'h:mm a') : 'TBD'}
                               </p>
                               <p className="text-xs text-blue-400/80">
-                                Reservations blocked: {formatDateTime(bufferStart)} - {formatDateTime(bufferEnd)} (2-hour buffer)
+                                Reservations blocked: {formatFloridaTime(bufferStartUTC.toISOString(), 'h:mm a')} - {formatFloridaTime(bufferEndUTC.toISOString(), 'h:mm a')} (2-hour buffer)
                               </p>
                               <a 
                                 href={`/events/${encodeURIComponent(event.slug)}`}
@@ -430,7 +472,7 @@ export default function ReservationsPage() {
                           required
                           value={formData.reservationTime}
                           onChange={(e) => setFormData({ ...formData, reservationTime: e.target.value })}
-                          className="w-full h-12 rounded-lg border border-gray-300 px-4 text-base focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white"
+                          className="w-full h-12 rounded-lg border border-gray-300 px-4 text-base focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-[#111111] text-white border-white/20"
                         >
                           <option value="">Select a time</option>
                           {availableSlots.map((slot) => (
@@ -510,15 +552,20 @@ export default function ReservationsPage() {
                     </Button>
                     <span className="text-sm bar-text-muted">(Max 12 guests)</span>
                   </div>
-                  {specialHoursInfo?.special_hours_limits?.[0]?.max_guests_per_booking && (
+                  {specialHoursInfo?.special_hours_limits?.[0]?.max_guests_per_booking && 
+                   formData.reservationTime &&
+                   isTimeWithinSpecialHours(formData.reservationTime, specialHoursInfo) && (
                     <p className="text-sm text-orange-600 mt-2">
                       Maximum {specialHoursInfo.special_hours_limits[0].max_guests_per_booking} guests per booking for this event
                     </p>
                   )}
                 </div>
 
-                {/* Custom Fields from Special Hours */}
-                {specialHoursInfo?.special_hours_fields?.map((field: any) => (
+                {/* Custom Fields from Special Hours - Only show if time is within special hours range */}
+                {specialHoursInfo?.special_hours_fields && 
+                 formData.reservationTime &&
+                 isTimeWithinSpecialHours(formData.reservationTime, specialHoursInfo) &&
+                 specialHoursInfo.special_hours_fields.map((field: any) => (
                   <div key={field.id}>
                     <Label htmlFor={field.field_key} className="text-base font-semibold mb-2 block">
                       {field.field_label} {field.is_required && '*'}
@@ -582,8 +629,10 @@ export default function ReservationsPage() {
                   />
                 </div>
 
-                {/* Special Hours Payment Info */}
-                {specialHoursInfo?.special_hours_payment?.[0]?.prepayment_required && (
+                {/* Special Hours Payment Info - Only show if time is within special hours range */}
+                {specialHoursInfo?.special_hours_payment?.[0]?.prepayment_required && 
+                 formData.reservationTime &&
+                 isTimeWithinSpecialHours(formData.reservationTime, specialHoursInfo) && (
                   <div className="p-6 bg-gradient-to-r from-yellow-50 to-amber-50 border-2 border-yellow-200 rounded-2xl">
                     <div className="flex items-start gap-3">
                       <AlertCircle className="h-6 w-6 text-yellow-600 mt-0.5" />
@@ -601,8 +650,10 @@ export default function ReservationsPage() {
                   </div>
                 )}
 
-                {/* Cancellation Policy */}
-                {specialHoursInfo?.special_hours_payment?.[0]?.cancellation_policy && (
+                {/* Cancellation Policy - Only show if time is within special hours range */}
+                {specialHoursInfo?.special_hours_payment?.[0]?.cancellation_policy && 
+                 formData.reservationTime &&
+                 isTimeWithinSpecialHours(formData.reservationTime, specialHoursInfo) && (
                   <div className="p-4 bg-blue-50/50 border border-blue-200/50 rounded-xl">
                     <p className="text-sm font-semibold text-blue-900 mb-1">Cancellation Policy</p>
                     <p className="text-sm text-blue-800">

@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/db'
 
 export async function POST(request: NextRequest) {
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Database service unavailable. Please check configuration.' },
+      { status: 503 }
+    )
+  }
+
   try {
     const body = await request.json()
     const { name, email, phone, subject, message } = body

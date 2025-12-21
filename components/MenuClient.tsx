@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Leaf, UtensilsCrossed } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { Leaf, UtensilsCrossed, Wine, ChefHat } from 'lucide-react'
 import SupabaseImage from '@/components/SupabaseImage'
 import Link from 'next/link'
 
@@ -11,10 +11,79 @@ interface MenuClientProps {
 }
 
 export default function MenuClient({ categories, items }: MenuClientProps) {
-  // Default to first category if available
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    categories.length > 0 ? categories[0].id : null
-  )
+  // Toggle between 'food' and 'drink'
+  const [selectedType, setSelectedType] = useState<'food' | 'drink'>('food')
+  const [showTransition, setShowTransition] = useState(false)
+  const [transitionType, setTransitionType] = useState<'food' | 'drink'>('food')
+  const [hasMounted, setHasMounted] = useState(false)
+  
+  // Show transition on initial mount
+  useEffect(() => {
+    setTransitionType('food')
+    setShowTransition(true)
+    setTimeout(() => {
+      setShowTransition(false)
+      setHasMounted(true)
+    }, 910) // 700 * 1.3
+  }, [])
+  
+  // Handle tab change with transition
+  const handleTabChange = (type: 'food' | 'drink') => {
+    if (selectedType === type) return
+    
+    setTransitionType(type)
+    setShowTransition(true)
+    
+    setTimeout(() => {
+      setSelectedType(type)
+    }, 455) // halfway point (350 * 1.3)
+    
+    setTimeout(() => {
+      setShowTransition(false)
+    }, 910) // animation ends (700 * 1.3)
+  }
+  
+  // Filter categories by type (default to 'food' if category_type is null for backward compatibility)
+  const filteredCategories = useMemo(() => {
+    return categories.filter(cat => (cat.category_type || 'food') === selectedType)
+  }, [categories, selectedType])
+  
+  // Default to first category of selected type if available
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
+  
+  // Update selected category when type changes
+  useEffect(() => {
+    if (filteredCategories.length > 0) {
+      // Try to keep the same category if it exists in the new filtered list
+      const currentCategoryExists = filteredCategories.find(cat => cat.id === selectedCategoryId)
+      if (!currentCategoryExists) {
+        setSelectedCategoryId(filteredCategories[0].id)
+      }
+    } else {
+      setSelectedCategoryId(null)
+    }
+  }, [selectedType, filteredCategories, selectedCategoryId])
+
+  // Auto-scroll active category into view
+  useEffect(() => {
+    if (selectedCategoryId && categoryScrollRef.current) {
+      const activeButton = categoryScrollRef.current.querySelector(`[data-category-id="${selectedCategoryId}"]`) as HTMLElement
+      if (activeButton) {
+        activeButton.scrollIntoView({
+          behavior: 'smooth',
+          inline: 'center',
+          block: 'nearest'
+        })
+      }
+    }
+  }, [selectedCategoryId])
+  
+  // Initialize with first category on mount
+  useEffect(() => {
+    if (filteredCategories.length > 0 && !selectedCategoryId) {
+      setSelectedCategoryId(filteredCategories[0].id)
+    }
+  }, [filteredCategories, selectedCategoryId])
 
   // Scroll tracking for category selector
   const categoryScrollRef = useRef<HTMLDivElement>(null)
@@ -48,7 +117,7 @@ export default function MenuClient({ categories, items }: MenuClientProps) {
       container.removeEventListener('scroll', updateScrollInfo)
       window.removeEventListener('resize', updateScrollInfo)
     }
-  }, [categories])
+  }, [filteredCategories])
 
   // Filter items based on selected category
   const filteredItems = selectedCategoryId
@@ -61,38 +130,94 @@ export default function MenuClient({ categories, items }: MenuClientProps) {
     : null
 
   return (
-    <div className="section-bg-primary section-spacing">
-      <div className="container-global">
-        <div className="text-center mb-12">
-          <h1 className="section-title mb-4">OUR MENU</h1>
-          <div className="w-20 md:w-28 h-0.5 md:h-1 bg-[#F59E0B] mx-auto rounded-full mb-6"></div>
-          <p className="body-text max-w-3xl mx-auto">
+    <div className="section-spacing relative" style={{
+      background: 'radial-gradient(60% 40% at 50% 0%, rgba(245,158,11,0.08), transparent 60%), linear-gradient(180deg, #0b0b0b, #050505)'
+    }}>
+      {/* Transition Overlay */}
+      {showTransition && (
+        <MenuTransitionOverlay type={transitionType} />
+      )}
+      
+      <div className="container-global relative z-10" style={{
+        paddingLeft: 'max(16px, env(safe-area-inset-left, 16px))',
+        paddingRight: 'max(16px, env(safe-area-inset-right, 16px))'
+      }}>
+        <div className="text-center mb-12 md:mb-16">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 text-gradient-amber" style={{
+            fontFamily: "'Playfair Display', serif",
+            letterSpacing: '1px',
+            fontWeight: 700
+          }}>OUR MENU</h1>
+          <div className="section-divider-enhanced mb-6"></div>
+          <p className="body-text max-w-3xl mx-auto text-base md:text-lg opacity-90">
             Discover our delicious selection of food and drinks, crafted with care and passion.
           </p>
         </div>
 
-      {/* Premium Category Selector */}
-      <div className="mb-12 md:mb-16">
-        <div 
-          ref={categoryScrollRef}
-          className="flex gap-3 md:gap-4 overflow-x-auto pb-4 scrollbar-hide px-4 md:px-0 justify-start"
-        >
-          {categories.map((category) => (
-            <button
-              key={category.id}
-              onClick={() => setSelectedCategoryId(category.id)}
-              className={`relative whitespace-nowrap text-sm md:text-base px-6 md:px-8 py-3 md:py-4 rounded-xl font-semibold transition-all duration-300 min-h-[44px] ${
-                selectedCategoryId === category.id
-                  ? 'bg-[#F59E0B] text-black shadow-lg shadow-[#F59E0B]/30 scale-105'
-                  : 'bg-[#111111] border-2 border-white/10 text-[#D1D5DB] hover:bg-[#F59E0B]/10 hover:border-[#F59E0B]/40 hover:text-[#F59E0B] hover:scale-105'
-              }`}
-            >
-              {category.name}
-              {selectedCategoryId === category.id && (
-                <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-8 h-1 bg-[#F59E0B] rounded-full"></span>
-              )}
-            </button>
-          ))}
+      {/* Food/Drink Toggle */}
+      <div className="mb-10 md:mb-14 flex justify-center">
+        <div className="inline-flex bg-[#111111] border-2 border-white/10 rounded-2xl p-2 gap-2 shadow-2xl">
+          <button
+            onClick={() => handleTabChange('food')}
+            className={`flex items-center gap-3 px-8 md:px-10 py-4 md:py-5 rounded-xl font-semibold transition-all duration-300 min-h-[52px] relative overflow-hidden ${
+              selectedType === 'food'
+                ? 'bg-gradient-to-r from-[#fbbf24] to-[#f59e0b] text-black shadow-lg shadow-[#F59E0B]/35 scale-105'
+                : 'text-[#D1D5DB] hover:text-[#F59E0B]'
+            }`}
+          >
+            <ChefHat className={`h-5 w-5 md:h-6 md:w-6 transition-all duration-300 ${selectedType === 'food' ? 'scale-110' : ''}`} />
+            <span className="text-base md:text-lg">Food</span>
+          </button>
+          <button
+            onClick={() => handleTabChange('drink')}
+            className={`flex items-center gap-3 px-8 md:px-10 py-4 md:py-5 rounded-xl font-semibold transition-all duration-300 min-h-[52px] relative overflow-hidden ${
+              selectedType === 'drink'
+                ? 'bg-gradient-to-r from-[#fbbf24] to-[#f59e0b] text-black shadow-lg shadow-[#F59E0B]/35 scale-105'
+                : 'text-[#D1D5DB] hover:text-[#F59E0B]'
+            }`}
+          >
+            <Wine className={`h-5 w-5 md:h-6 md:w-6 transition-all duration-300 ${selectedType === 'drink' ? 'scale-110' : ''}`} />
+            <span className="text-base md:text-lg">Drinks</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Premium Category Selector with Fade Edges */}
+      <div className="mb-12 md:mb-16 relative">
+        <div className="relative menu-categories-wrapper">
+          {/* Left fade gradient */}
+          <div className="absolute left-0 top-0 bottom-4 w-12 md:w-16 bg-gradient-to-r from-[#0b0b0b] to-transparent pointer-events-none z-10"></div>
+          
+          {/* Right fade gradient */}
+          <div className="absolute right-0 top-0 bottom-4 w-12 md:w-16 bg-gradient-to-l from-[#0b0b0b] to-transparent pointer-events-none z-10"></div>
+          
+          <div 
+            ref={categoryScrollRef}
+            className="flex gap-3 md:gap-4 overflow-x-auto pb-4 scrollbar-hide px-4 md:px-6 justify-start md:justify-center"
+            style={{
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+              WebkitOverflowScrolling: 'touch'
+            }}
+          >
+            {filteredCategories.map((category) => (
+              <button
+                key={category.id}
+                data-category-id={category.id}
+                onClick={() => setSelectedCategoryId(category.id)}
+                className={`relative whitespace-nowrap text-sm md:text-base px-6 md:px-8 py-3 md:py-4 rounded-xl font-semibold transition-all duration-300 min-h-[44px] flex-shrink-0 ${
+                  selectedCategoryId === category.id
+                    ? 'bg-gradient-to-r from-[#fbbf24] to-[#f59e0b] text-black shadow-[0_8px_30px_rgba(245,158,11,0.35)] scale-110'
+                    : 'bg-[#111111] border-2 border-white/10 text-[#D1D5DB] hover:bg-[#F59E0B]/10 hover:border-[#F59E0B]/40 hover:text-[#F59E0B] hover:scale-105'
+                }`}
+              >
+                {category.name}
+                {selectedCategoryId === category.id && (
+                  <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-black/20 rounded-full animate-pulse"></span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
         
         {/* Horizontal Scroll Indicator Bar */}
@@ -134,92 +259,127 @@ export default function MenuClient({ categories, items }: MenuClientProps) {
 
       {/* Selected Category Info */}
       {selectedCategory && (
-        <div className="mb-10 md:mb-12 pb-6 border-b border-white/10">
-          <h2 className="section-title mb-3">{selectedCategory.name}</h2>
+        <div className="mb-10 md:mb-12 pb-6 border-b border-white/10 animate-fade-in">
+          <h2 className="text-2xl md:text-3xl font-bold mb-3 text-gradient-amber" style={{
+            fontFamily: "'Playfair Display', serif",
+            letterSpacing: '0.5px',
+            fontWeight: 700
+          }}>{selectedCategory.name}</h2>
           {selectedCategory.description && (
-            <p className="body-text text-base md:text-lg max-w-3xl">{selectedCategory.description}</p>
+            <p className="body-text text-sm md:text-base max-w-3xl opacity-80">{selectedCategory.description}</p>
           )}
         </div>
       )}
 
       {/* Menu Items Grid */}
       {filteredItems.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 lg:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-7 md:gap-8">
           {filteredItems.map((item, index) => {
             const price = item.menu_item_variants && item.menu_item_variants.length > 0
               ? item.menu_item_variants[0].price
               : item.base_price || 0
 
             return (
-              <div 
-                key={item.id} 
-                className="menu-item-card-premium animate-fade-in-up group rounded-xl md:rounded-2xl" 
+              <Link 
+                key={item.id}
+                href={`/menu/${item.id}`}
+                className="menu-item-card-premium animate-fade-in-up group rounded-xl md:rounded-2xl relative bg-[#111111] border border-white/10 overflow-hidden transition-all duration-500 hover:-translate-y-1.5 hover:shadow-[0_25px_60px_rgba(0,0,0,0.6)] hover:border-[#F59E0B]/60 flex flex-col justify-end min-h-[260px] block cursor-pointer" 
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
+                {/* Top gradient overlay to remove dead space */}
+                <div className="absolute inset-0 pointer-events-none" style={{
+                  background: 'radial-gradient(120% 60% at 50% 0%, rgba(245,158,11,0.08), transparent 60%)'
+                }}></div>
+                
+                {/* Diagonal shine effect on hover */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{
+                  background: 'linear-gradient(135deg, transparent 40%, rgba(245,158,11,0.08), transparent 60%)'
+                }}></div>
                 {/* Image Section */}
                 {item.image_path ? (
-                  <div className="aspect-square relative overflow-hidden rounded-t-xl md:rounded-t-2xl group-hover:rounded-t-xl md:group-hover:rounded-t-2xl transition-all duration-300">
-                    <Link href={`/menu/${item.id}`}>
-                      <SupabaseImage
-                        src={item.image_path}
-                        alt={item.name}
-                        fill
-                        className="object-cover group-hover:scale-110 transition-transform duration-500"
-                        bucket="menu-items"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
-                      {item.is_featured && (
-                        <span className="absolute top-2 right-2 md:top-4 md:right-4 bg-[#F59E0B] text-black px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold shadow-xl backdrop-blur-sm">
-                          Featured
-                        </span>
-                      )}
-                      {item.is_veg && (
-                        <span className="absolute top-2 left-2 md:top-4 md:left-4 bg-green-500 text-white px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 shadow-xl backdrop-blur-sm">
-                          <Leaf className="h-2.5 w-2.5 md:h-3.5 md:w-3.5" />
-                          Veg
-                        </span>
-                      )}
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="aspect-square bg-gradient-to-br from-[#111111] to-[#0E0E0E] relative flex items-center justify-center border-b border-white/10 rounded-t-xl md:rounded-t-2xl">
+                  <div className="aspect-square relative overflow-hidden rounded-t-xl md:rounded-t-2xl group-hover:rounded-t-xl md:group-hover:rounded-t-2xl transition-all duration-300 flex-shrink-0">
+                    <SupabaseImage
+                      src={item.image_path}
+                      alt={item.name}
+                      fill
+                      className="object-cover group-hover:scale-110 transition-transform duration-500"
+                      bucket="menu-items"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
                     {item.is_featured && (
-                      <span className="absolute top-2 right-2 md:top-4 md:right-4 bg-[#F59E0B] text-black px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold shadow-xl">
+                      <span className="absolute top-2 right-2 md:top-4 md:right-4 bg-[#F59E0B] text-black px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold shadow-xl backdrop-blur-sm z-10">
                         Featured
                       </span>
                     )}
                     {item.is_veg && (
-                      <span className="absolute top-2 left-2 md:top-4 md:left-4 bg-green-500 text-white px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 shadow-xl">
+                      <span className="absolute top-2 left-2 md:top-4 md:left-4 bg-green-500 text-white px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 shadow-xl backdrop-blur-sm z-10">
                         <Leaf className="h-2.5 w-2.5 md:h-3.5 md:w-3.5" />
                         Veg
                       </span>
                     )}
-                    <UtensilsCrossed className="h-12 w-12 md:h-16 md:w-16 lg:h-20 lg:w-20 text-[#F59E0B] opacity-30" />
+                  </div>
+                ) : (
+                  <div className="aspect-square bg-gradient-to-br from-[#111111] to-[#0a0a0a] relative flex items-center justify-center rounded-t-xl md:rounded-t-2xl flex-shrink-0" style={{
+                    background: 'linear-gradient(135deg, #111111 0%, #0a0a0a 100%), linear-gradient(135deg, transparent 40%, rgba(245,158,11,0.03), transparent 60%)'
+                  }}>
+                    {item.is_featured && (
+                      <span className="absolute top-2 right-2 md:top-4 md:right-4 bg-[#F59E0B] text-black px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold shadow-xl z-10">
+                        Featured
+                      </span>
+                    )}
+                    {item.is_veg && (
+                      <span className="absolute top-2 left-2 md:top-4 md:left-4 bg-green-500 text-white px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1 md:gap-1.5 shadow-xl z-10">
+                        <Leaf className="h-2.5 w-2.5 md:h-3.5 md:w-3.5" />
+                        Veg
+                      </span>
+                    )}
+                    {/* Gold line divider instead of icon */}
+                    <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#F59E0B]/30 to-transparent"></div>
                   </div>
                 )}
 
-                {/* Content Section */}
-                <div className="p-3 md:p-4 lg:p-6">
-                  <Link href={`/menu/${item.id}`}>
-                    <div className="flex items-start justify-between group-hover:text-[#F59E0B] transition-colors">
-                      <h3 className="card-title flex-1 pr-2 md:pr-4 text-base md:text-lg lg:text-xl">{item.name}</h3>
-                      <div className="text-right flex-shrink-0">
-                        <span className="text-lg md:text-2xl lg:text-3xl font-bold price-amber block">
-                          ${price.toFixed(2)}
-                        </span>
-                      </div>
+                {/* Content Section with proper structure */}
+                <div className="relative z-10">
+                  {/* Micro separator */}
+                  <div className="border-t border-white/6 mx-4 md:mx-5 lg:mx-6"></div>
+                  
+                  <div className="p-4 md:p-5 lg:p-6 pt-4 md:pt-5 lg:pt-6">
+                    {/* Name and Price on same row */}
+                    <div className="flex items-start justify-between gap-3 group-hover:text-[#F59E0B] transition-colors duration-300">
+                      <h3 
+                        className="flex-1 text-[0.95rem] md:text-base leading-[1.35] font-semibold text-[#f5f5f5] break-words" 
+                        style={{
+                          fontFamily: "'Inter', sans-serif",
+                          fontWeight: 600,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          lineHeight: '1.35'
+                        }}
+                      >
+                        {item.name}
+                      </h3>
+                      <span 
+                        className="text-base md:text-lg font-bold text-[#fbbf24] whitespace-nowrap flex-shrink-0 transition-all duration-300 group-hover:drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" 
+                        style={{
+                          fontWeight: 700
+                        }}
+                      >
+                        ${price.toFixed(2)}
+                      </span>
                     </div>
-                  </Link>
+                  </div>
                 </div>
-              </div>
+              </Link>
             )
           })}
         </div>
       ) : (
         <div className="text-center py-16 md:py-20">
-          <div className="card-dark max-w-md mx-auto">
+          <div className="max-w-md mx-auto bg-[#111111] rounded-2xl shadow-2xl p-8 border border-white/10">
             <UtensilsCrossed className="h-14 w-14 md:h-16 md:w-16 text-[#F59E0B] mx-auto mb-4 opacity-60" />
-            <p className="body-text text-center">
+            <p className="body-text text-center text-sm md:text-base opacity-80">
               {selectedCategory
                 ? `No items available in ${selectedCategory.name} category.`
                 : 'No menu items available at the moment.'}
@@ -227,6 +387,160 @@ export default function MenuClient({ categories, items }: MenuClientProps) {
           </div>
         </div>
       )}
+      </div>
+    </div>
+  )
+}
+
+// Menu Transition Overlay Component
+function MenuTransitionOverlay({ type }: { type: 'food' | 'drink' }) {
+  return (
+    <div className="fixed inset-0 bg-[#0E0E0E] z-[9999] flex items-center justify-center">
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes collideLeft {
+          0% {
+            transform: translateX(-250px) translateY(-50%);
+            opacity: 0;
+          }
+          70% {
+            transform: translateX(40px) translateY(-50%);
+            opacity: 1;
+          }
+          85% {
+            transform: translateX(20px) translateY(-50%);
+          }
+          100% {
+            transform: translateX(40px) translateY(-50%);
+            opacity: 1;
+          }
+        }
+        @keyframes collideRight {
+          0% {
+            transform: translateX(250px) translateY(-50%) scaleX(-1);
+            opacity: 0;
+          }
+          70% {
+            transform: translateX(-40px) translateY(-50%) scaleX(-1);
+            opacity: 1;
+          }
+          85% {
+            transform: translateX(-20px) translateY(-50%) scaleX(-1);
+          }
+          100% {
+            transform: translateX(-40px) translateY(-50%) scaleX(-1);
+            opacity: 1;
+          }
+        }
+        @keyframes clinkLeft {
+          0% {
+            transform: translateX(-250px) translateY(-50%) rotate(-15deg);
+            opacity: 0;
+          }
+          70% {
+            transform: translateX(40px) translateY(-50%) rotate(-10deg);
+            opacity: 1;
+          }
+          85% {
+            transform: translateX(25px) translateY(-50%) rotate(-8deg);
+          }
+          100% {
+            transform: translateX(40px) translateY(-50%) rotate(-5deg);
+            opacity: 1;
+          }
+        }
+        @keyframes clinkRight {
+          0% {
+            transform: translateX(250px) translateY(-50%) rotate(15deg) scaleX(-1);
+            opacity: 0;
+          }
+          70% {
+            transform: translateX(-40px) translateY(-50%) rotate(10deg) scaleX(-1);
+            opacity: 1;
+          }
+          85% {
+            transform: translateX(-25px) translateY(-50%) rotate(8deg) scaleX(-1);
+          }
+          100% {
+            transform: translateX(-40px) translateY(-50%) rotate(5deg) scaleX(-1);
+            opacity: 1;
+          }
+        }
+        @keyframes fadeOut {
+          0% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        .menu-collision-container {
+          position: relative;
+          width: 400px;
+          height: 400px;
+          animation: fadeOut 0.15s ease 0.715s forwards;
+        }
+        @media (min-width: 768px) {
+          .menu-collision-container {
+            width: 600px;
+            height: 600px;
+          }
+        }
+        .menu-collision-item {
+          position: absolute;
+          width: 180px;
+          height: auto;
+          top: 50%;
+        }
+        @media (min-width: 768px) {
+          .menu-collision-item {
+            width: 250px;
+          }
+        }
+        .menu-collision-item.left {
+          left: 50%;
+          transform: translateX(-50%) translateY(-50%);
+          animation: collideLeft 0.78s ease forwards;
+        }
+        .menu-collision-item.right {
+          right: 50%;
+          transform: translateX(50%) translateY(-50%) scaleX(-1);
+          animation: collideRight 0.78s ease forwards;
+        }
+        .menu-collision-item.glass.left {
+          left: 50%;
+          transform: translateX(-50%) translateY(-50%);
+          animation: clinkLeft 0.78s ease forwards;
+        }
+        .menu-collision-item.glass.right {
+          right: 50%;
+          transform: translateX(50%) translateY(-50%) scaleX(-1);
+          animation: clinkRight 0.78s ease forwards;
+        }
+      ` }} />
+      <div className="menu-collision-container">
+        {type === 'food' ? (
+          <>
+            <img 
+              src="/images/leg.png" 
+              alt="Chicken leg" 
+              className="menu-collision-item left"
+            />
+            <img 
+              src="/images/leg.png" 
+              alt="Chicken leg" 
+              className="menu-collision-item right"
+            />
+          </>
+        ) : (
+          <>
+            <img 
+              src="/images/drink.png" 
+              alt="Drink glass" 
+              className="menu-collision-item glass left"
+            />
+            <img 
+              src="/images/drink.png" 
+              alt="Drink glass" 
+              className="menu-collision-item glass right"
+            />
+          </>
+        )}
       </div>
     </div>
   )

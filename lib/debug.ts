@@ -4,6 +4,11 @@ export async function testSupabaseConnection() {
     const { supabase } = await import('./db')
     
     // Test a simple query
+    if (!supabase) {
+      console.error('Supabase client not available')
+      return { success: false, error: 'Database not available' }
+    }
+    
     const { data, error } = await supabase
       .from('site_settings')
       .select('count')

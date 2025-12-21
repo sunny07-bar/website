@@ -3,6 +3,13 @@ import { supabase } from '@/lib/db'
 import crypto from 'crypto'
 
 export async function POST(request: NextRequest) {
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Database service unavailable. Please check configuration.' },
+      { status: 503 }
+    )
+  }
+
   try {
     const body = await request.json()
     const { qrCodeData, location, staffId } = body

@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter, useParams } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Loader2, CreditCard, AlertCircle, CheckCircle, Ticket } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Loader2, CreditCard, AlertCircle, CheckCircle, Ticket, Lock } from 'lucide-react'
 
-export default function TicketPaymentPage() {
+function TicketPaymentPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const params = useParams()
@@ -14,6 +16,13 @@ export default function TicketPaymentPage() {
   const amount = searchParams.get('amount')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cardData, setCardData] = useState({
+    cardNumber: '',
+    cardName: '',
+    expiryDate: '',
+    cvv: '',
+    zipCode: '',
+  })
 
   useEffect(() => {
     if (!orderId || !amount) {
@@ -21,9 +30,67 @@ export default function TicketPaymentPage() {
     }
   }, [orderId, amount])
 
-  const handlePayPalPayment = async () => {
+  const formatCardNumber = (value: string) => {
+    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '')
+    const matches = v.match(/\d{4,16}/g)
+    const match = (matches && matches[0]) || ''
+    const parts = []
+    for (let i = 0, len = match.length; i < len; i += 4) {
+      parts.push(match.substring(i, i + 4))
+    }
+    if (parts.length) {
+      return parts.join(' ')
+    } else {
+      return v
+    }
+  }
+
+  const formatExpiryDate = (value: string) => {
+    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '')
+    if (v.length >= 2) {
+      return v.substring(0, 2) + '/' + v.substring(2, 4)
+    }
+    return v
+  }
+
+  const handleCardInputChange = (field: string, value: string) => {
+    if (field === 'cardNumber') {
+      value = formatCardNumber(value)
+    } else if (field === 'expiryDate') {
+      value = formatExpiryDate(value)
+    } else if (field === 'cvv') {
+      value = value.replace(/\D/g, '').substring(0, 4)
+    }
+    setCardData({ ...cardData, [field]: value })
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
     if (!orderId || !amount) {
       setError('Missing order or payment information')
+      return
+    }
+
+    // Basic validation
+    if (!cardData.cardNumber || cardData.cardNumber.replace(/\s/g, '').length < 13) {
+      setError('Please enter a valid card number')
+      return
+    }
+    if (!cardData.cardName) {
+      setError('Please enter cardholder name')
+      return
+    }
+    if (!cardData.expiryDate || cardData.expiryDate.length < 5) {
+      setError('Please enter a valid expiry date (MM/YY)')
+      return
+    }
+    if (!cardData.cvv || cardData.cvv.length < 3) {
+      setError('Please enter a valid CVV')
+      return
+    }
+    if (!cardData.zipCode) {
+      setError('Please enter zip code')
       return
     }
 
@@ -31,35 +98,32 @@ export default function TicketPaymentPage() {
     setError(null)
 
     try {
-      // Create PayPal order
-      const response = await fetch('/api/payments/paypal/create-order', {
+      const response = await fetch('/api/payments/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: parseFloat(amount),
-          currency: 'USD',
-          orderId,
           type: 'ticket',
-          description: `Event Ticket Purchase - Order ${orderId}`,
+          orderId,
+          amount: parseFloat(amount),
+          paymentMethod: 'credit_card',
         }),
       })
 
+      const data = await response.json()
+
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create payment')
+        throw new Error(data.error || 'Failed to process payment')
       }
 
-      const { approvalUrl } = await response.json()
-
-      if (approvalUrl) {
-        // Redirect to PayPal
-        window.location.href = approvalUrl
+      // Redirect to success page
+      if (data.redirectUrl) {
+        router.push(data.redirectUrl)
       } else {
-        throw new Error('No approval URL received')
+        router.push(`/events/${params.slug}/tickets/${orderId}`)
       }
     } catch (err: any) {
       console.error('Payment error:', err)
-      setError(err.message || 'Failed to initiate payment')
+      setError(err.message || 'Failed to process payment')
       setLoading(false)
     }
   }
@@ -93,7 +157,7 @@ export default function TicketPaymentPage() {
               Complete Your Payment
             </h1>
             <p className="bar-text-muted text-lg">
-              Secure payment powered by PayPal
+              Secure credit card payment
             </p>
           </div>
 
@@ -122,32 +186,118 @@ export default function TicketPaymentPage() {
             </div>
           )}
 
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Credit Card Form */}
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="cardName" className="text-base font-semibold mb-2 block">
+                  Cardholder Name *
+                </Label>
+                <Input
+                  id="cardName"
+                  required
+                  value={cardData.cardName}
+                  onChange={(e) => handleCardInputChange('cardName', e.target.value)}
+                  placeholder="John Doe"
+                  className="h-12 text-base"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="cardNumber" className="text-base font-semibold mb-2 block">
+                  Card Number *
+                </Label>
+                <Input
+                  id="cardNumber"
+                  required
+                  value={cardData.cardNumber}
+                  onChange={(e) => handleCardInputChange('cardNumber', e.target.value)}
+                  placeholder="1234 5678 9012 3456"
+                  maxLength={19}
+                  className="h-12 text-base"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="expiryDate" className="text-base font-semibold mb-2 block">
+                    Expiry Date *
+                  </Label>
+                  <Input
+                    id="expiryDate"
+                    required
+                    value={cardData.expiryDate}
+                    onChange={(e) => handleCardInputChange('expiryDate', e.target.value)}
+                    placeholder="MM/YY"
+                    maxLength={5}
+                    className="h-12 text-base"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cvv" className="text-base font-semibold mb-2 block">
+                    CVV *
+                  </Label>
+                  <Input
+                    id="cvv"
+                    required
+                    type="password"
+                    value={cardData.cvv}
+                    onChange={(e) => handleCardInputChange('cvv', e.target.value)}
+                    placeholder="123"
+                    maxLength={4}
+                    className="h-12 text-base"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="zipCode" className="text-base font-semibold mb-2 block">
+                  Zip Code *
+                </Label>
+                <Input
+                  id="zipCode"
+                  required
+                  value={cardData.zipCode}
+                  onChange={(e) => handleCardInputChange('zipCode', e.target.value)}
+                  placeholder="12345"
+                  className="h-12 text-base"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-red-800">Payment Error</p>
+                  <p className="text-sm text-red-700 mt-1">{error}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
             <Button
-              onClick={handlePayPalPayment}
+                type="submit"
               disabled={loading}
-              className="w-full bg-[#0070ba] hover:bg-[#005ea6] text-white h-14 text-lg font-bold shadow-xl hover:shadow-2xl transition-all"
+                className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white h-14 text-lg font-bold shadow-xl hover:shadow-2xl transition-all"
             >
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin inline" />
-                  Processing...
+                    Processing Payment...
                 </>
               ) : (
                 <>
-                  <svg
-                    className="mr-2 h-6 w-6 inline"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                  >
-                    <path d="M7.076 13.674c-.174-1.12.51-2.607 1.811-3.802.91-.85 2.102-1.444 3.418-1.654.19-.03.388-.05.59-.06v-2.913l-2.545.544c-2.939.617-5.301 2.782-6.111 5.537h2.837zm10.11 2.475c1.257.75 2.843.426 4.07-.705 1.216-1.122 1.872-2.75 1.536-4.315-.333-1.565-1.547-2.89-3.117-3.52l-2.489-.532v2.894c.19.01.38.03.57.06 1.315.21 2.507.804 3.418 1.654 1.3 1.195 1.985 2.682 1.811 3.802l-2.836-.198zm-1.392 4.699c-1.693.354-3.54.354-5.233 0-1.693-.355-3.24-1.08-4.432-2.01l-.59 2.789c1.52 1.138 3.304 1.804 5.19 2.01 1.886.205 3.818.205 5.704 0 1.886-.206 3.67-.872 5.19-2.01l-.59-2.789c-1.192.93-2.739 1.655-4.432 2.01zm-1.684-7.373c-1.693.354-3.54.354-5.233 0-1.693-.355-3.24-1.08-4.432-2.01l-.59 2.789c1.52 1.138 3.304 1.804 5.19 2.01 1.886.205 3.818.205 5.704 0 1.886-.206 3.67-.872 5.19-2.01l-.59-2.789c-1.192.93-2.739 1.655-4.432 2.01z" />
-                  </svg>
-                  Pay with PayPal
+                    <Lock className="mr-2 h-5 w-5 inline" />
+                    Complete Payment
                 </>
               )}
             </Button>
 
             <Button
+                type="button"
               variant="outline"
               onClick={() => router.push(`/events/${params.slug}`)}
               className="w-full h-12"
@@ -156,13 +306,34 @@ export default function TicketPaymentPage() {
             </Button>
           </div>
 
-          <div className="mt-8 text-center text-sm bar-text-muted space-y-2">
+            <div className="mt-6 text-center text-sm bar-text-muted space-y-2">
+              <div className="flex items-center justify-center gap-2">
+                <Lock className="h-4 w-4" />
+                <p>Your payment is secure and encrypted</p>
+              </div>
             <p>Your tickets will be confirmed once payment is completed.</p>
-            <p>You will be redirected to PayPal to complete your payment securely.</p>
           </div>
+          </form>
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function TicketPaymentPage() {
+  return (
+    <Suspense fallback={
+      <div className="container mx-auto px-4 py-12">
+        <Card className="bar-card">
+          <CardContent className="p-8 text-center">
+            <Loader2 className="h-16 w-16 text-orange-500 mx-auto mb-4 animate-spin" />
+            <p className="text-gray-600">Loading payment page...</p>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <TicketPaymentPageContent />
+    </Suspense>
   )
 }
 

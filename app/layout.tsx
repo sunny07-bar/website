@@ -30,6 +30,11 @@ const bebasNeue = Bebas_Neue({
 export const metadata: Metadata = {
   title: "Good Times Bar & Grill - Live Music, Great Food",
   description: "Good Times Bar and Grill is your destination for great food, awesome drinks, live music and more!",
+  icons: {
+    icon: '/images/good-times-logo.png',
+    shortcut: '/images/good-times-logo.png',
+    apple: '/images/good-times-logo.png',
+  },
 }
 
 export default function RootLayout({
@@ -44,7 +49,7 @@ export default function RootLayout({
           <div className="fixed inset-0 bg-[url('/grid-pattern.svg')] opacity-[0.02] pointer-events-none z-0"></div>
           <RouteLoaderWrapper />
           <Header />
-          <main className="flex-grow relative z-10 page-transition animate-fade-in">
+          <main className="flex-grow relative z-10 page-transition-enhanced">
             {children}
           </main>
           <Footer />

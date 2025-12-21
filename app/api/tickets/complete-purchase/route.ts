@@ -5,6 +5,12 @@ import QRCode from 'qrcode'
 
 // Helper to generate ticket number
 async function generateTicketNumber(): Promise<string> {
+  if (!supabase) {
+    const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '')
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase()
+    return `TKT-${dateStr}-${random}`
+  }
+
   try {
     const { data: ticketNumberData, error: rpcError } = await supabase.rpc('generate_ticket_number')
     if (rpcError || !ticketNumberData) {
@@ -21,6 +27,12 @@ async function generateTicketNumber(): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'Database service unavailable. Please check configuration.' },
+      { status: 503 }
+    )
+  }
   try {
     const body = await request.json()
     const {
@@ -62,26 +74,48 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Extract event early so we can use it in reconstruction
+    const event = order.events
+
     // Get ticket selection from stored selection (tickets param is optional, we'll fetch from DB)
     let ticketSelection = tickets
     
-    // Always try to get from stored selection first (more reliable)
-    const { data: storedSelection } = await supabase
-      .from('ticket_order_selections')
-      .select('ticket_selection')
-      .eq('ticket_order_id', orderId)
-      .single()
+    // Try to get from stored selection first (more reliable)
+    // Handle case where table doesn't exist gracefully
+    try {
+      const { data: storedSelection } = await supabase
+        .from('ticket_order_selections')
+        .select('ticket_selection')
+        .eq('ticket_order_id', orderId)
+        .single()
+      
+      if (storedSelection && storedSelection.ticket_selection) {
+        ticketSelection = storedSelection.ticket_selection
+      }
+    } catch (err) {
+      // Table doesn't exist or error - that's okay, try to use tickets param or reconstruct
+      console.log('Could not fetch from ticket_order_selections, using provided tickets or reconstructing')
+    }
     
-    if (storedSelection && storedSelection.ticket_selection) {
-      ticketSelection = storedSelection.ticket_selection
-    } else if (!ticketSelection || ticketSelection.length === 0) {
+    // If still no selection, try to reconstruct from order and event
+    if (!ticketSelection || ticketSelection.length === 0) {
+      // Reconstruct ticket selection from order total and event base price
+      if (event && event.base_ticket_price && order.total_amount) {
+        const quantity = Math.round(parseFloat(order.total_amount.toString()) / parseFloat(event.base_ticket_price.toString()))
+        if (quantity > 0) {
+          ticketSelection = [{ ticketTypeId: 'base', quantity }]
+          console.log(`Reconstructed ticket selection: ${quantity} base tickets`)
+        }
+      }
+    }
+    
+    // Final check - if still no selection, return error
+    if (!ticketSelection || ticketSelection.length === 0) {
       return NextResponse.json(
         { error: 'Ticket selection not found. Please try purchasing again.' },
         { status: 400 }
       )
     }
-
-    const event = order.events
     const customerName = order.customer_name
     const customerEmail = order.customer_email
 
@@ -307,6 +341,8 @@ export async function POST(request: NextRequest) {
         title: event.title,
         slug: event.slug,
       },
+      redirectUrl: `/events/${event.slug}/tickets/${order.id}`,
+      eventSlug: event.slug,
     })
   } catch (error: any) {
     console.error('Complete ticket purchase error:', error)

@@ -1,13 +1,12 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { format, parseISO, getYear, getMonth } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
 import { Calendar, Clock, MapPin, ArrowRight, Ticket } from 'lucide-react'
 import SupabaseImage from '@/components/SupabaseImage'
 import AnimatedSection from '@/components/AnimatedSection'
-import { formatFloridaTime, toFloridaTime, getFloridaNow, isEventActive } from '@/lib/utils/timezone'
+import { formatFloridaTime, toFloridaTime, getFloridaNow, formatFloridaDateDDMMYYYY } from '@/lib/utils/timezone'
 
 interface Event {
   id: string
@@ -28,291 +27,44 @@ interface EventsTimelineProps {
 }
 
 export default function EventsTimeline({ events }: EventsTimelineProps) {
-  // Filter only active events (events that haven't ended yet)
-  // - If event has event_end: event is visible until event_end time
-  // - If no event_end: event is visible for the whole day of event_start
-  // - Event should not appear if it has already ended
-  const upcomingEvents = useMemo(() => {
-    const filtered = events.filter((event) => {
-      const isActive = isEventActive(event)
-      
-      if (!isActive) {
-        const eventEnd = event.event_end 
-          ? (typeof event.event_end === 'string' ? parseISO(event.event_end) : event.event_end)
-          : null
-        const eventStart = typeof event.event_start === 'string' ? parseISO(event.event_start) : event.event_start
-        console.log(`[EventsTimeline] Filtered out ended event: ${event.title}`, {
-          start: eventStart,
-          end: eventEnd || 'whole day',
-          now: getFloridaNow()
-        })
-      }
-      
-      return isActive
-    })
+  // Filter and sort events - only show future/upcoming events (using Florida timezone)
+  const sortedEvents = useMemo(() => {
+    const now = getFloridaNow()
     
-    console.log(`[EventsTimeline] Total events: ${events.length}, Upcoming events: ${filtered.length}`)
-    console.log(`[EventsTimeline] Upcoming events by year:`, 
-      filtered.reduce((acc, e) => {
-        const year = new Date(e.event_start).getFullYear().toString()
-        acc[year] = (acc[year] || 0) + 1
-        return acc
-      }, {} as Record<string, number>)
-    )
-    console.log(`[EventsTimeline] Upcoming events details:`, 
-      filtered.map(e => ({
-        title: e.title,
-        date: e.event_start,
-        parsedDate: typeof e.event_start === 'string' ? parseISO(e.event_start) : new Date(e.event_start),
-        year: new Date(e.event_start).getFullYear(),
-        month: new Date(e.event_start).getMonth()
-      }))
-    )
-    return filtered
-  }, [events])
-
-  // Helper function to extract year and month from date string
-  // This avoids timezone conversion issues by working with the date string directly
-  // IMPORTANT: Extract from the date part only (YYYY-MM-DD), ignore time and timezone
-  const getYearMonthFromDate = (dateStr: string | Date): { year: number; month: number } | null => {
-    try {
-      let str: string
-      if (typeof dateStr === 'string') {
-        str = dateStr
-      } else {
-        // If it's a Date object, get the ISO string
-        str = dateStr.toISOString()
-      }
-      
-      // Extract date part from various formats:
-      // "2025-12-15T10:00:00Z" -> "2025-12-15"
-      // "2025-12-15T10:00:00.000Z" -> "2025-12-15"
-      // "2025-12-15" -> "2025-12-15"
-      const datePartMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
-      if (datePartMatch) {
-        const year = parseInt(datePartMatch[1], 10)
-        const month = parseInt(datePartMatch[2], 10) - 1 // Convert to 0-based (0 = January, 11 = December)
-        
-        // Validate: month should be 0-11
-        if (month < 0 || month > 11) {
-          console.error(`Invalid month extracted: ${month} from date string: ${str}`)
-          return null
-        }
-        
-        return { year, month }
-      }
-      
-      console.error(`Could not extract date parts from: ${str}`)
-      return null
-    } catch (error) {
-      console.error('Error extracting year/month from date:', error, dateStr)
-      return null
-    }
-  }
-
-  // Group events by year-month combination (e.g., "2025-11" for December 2025, "2026-0" for January 2026)
-  // This allows us to show all months from all years in chronological order
-  // Only months that have events will be included
-  const eventsByYearMonth = useMemo(() => {
-    const grouped: Record<string, Event[]> = {}
-    
-    console.log(`[EventsTimeline] Total events received: ${events.length}`)
-    console.log(`[EventsTimeline] Upcoming events to group: ${upcomingEvents.length}`)
-    
-    // Group all upcoming events by their year-month
-    // IMPORTANT: Extract year/month from the date string directly to avoid timezone conversion issues
-    upcomingEvents.forEach((event) => {
+    // Filter out past events
+    const upcomingEvents = events.filter((event) => {
       try {
-        if (!event.event_start) {
-          console.warn(`[EventsTimeline] Event "${event.title}" has no event_start, skipping`)
-          return
+        const eventStart = typeof event.event_start === 'string' ? parseISO(event.event_start) : new Date(event.event_start)
+        const floridaEventStart = toFloridaTime(eventStart)
+        
+        // If event has an end time, check if it has ended
+        if (event.event_end) {
+          const eventEnd = typeof event.event_end === 'string' ? parseISO(event.event_end) : new Date(event.event_end)
+          const floridaEventEnd = toFloridaTime(eventEnd)
+          // Show event if current time is before event end
+          return now < floridaEventEnd
         }
         
-        // Extract year and month directly from the date string (YYYY-MM-DD part only)
-        // This is the most reliable way - extract from the string itself, no parsing/conversion
-        let dateStr: string
-        if (typeof event.event_start === 'string') {
-          dateStr = event.event_start
-        } else {
-          // Type assertion for Date or convert to string
-          const dateValue = event.event_start as any
-          dateStr = dateValue instanceof Date ? dateValue.toISOString() : String(event.event_start)
-        }
-        
-        // Extract YYYY-MM-DD from the date string
-        const dateMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/)
-        if (!dateMatch) {
-          console.warn(`[EventsTimeline] Could not extract date from "${event.title}": ${dateStr}`)
-          return
-        }
-        
-        const year = parseInt(dateMatch[1], 10)
-        const monthNum = parseInt(dateMatch[2], 10) // 1-12 (1 = January, 12 = December)
-        const month = monthNum - 1 // Convert to 0-based (0 = January, 11 = December)
-        
-        // Validate month
-        if (month < 0 || month > 11) {
-          console.error(`[EventsTimeline] Invalid month ${month} (from ${monthNum}) for event "${event.title}": ${dateStr}`)
-          return
-        }
-        
-        // Create a unique key combining year and month (e.g., "2025-11" for December 2025, "2026-0" for January 2026)
-        const key = `${year}-${month}`
-        
-        // For logging, show the month name
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-        const monthName = monthNames[month]
-        
-        console.log(`[EventsTimeline] Event "${event.title}": date=${dateStr}, extracted monthNum=${monthNum}, monthIndex=${month} (${monthName} ${year}), key=${key}`)
-        
-        // Initialize array for this month if it doesn't exist
-        if (!grouped[key]) {
-          grouped[key] = []
-        }
-        
-        grouped[key].push(event)
+        // If no end time, show event if it's today or in the future
+        // Set to end of event start day (23:59:59.999) for comparison
+        const eventStartDayEnd = new Date(floridaEventStart)
+        eventStartDayEnd.setHours(23, 59, 59, 999)
+        return now <= eventStartDayEnd
       } catch (error) {
-        console.error(`[EventsTimeline] Error parsing event date for "${event.title}":`, error, event)
+        console.error('Error filtering event:', error, event)
+        return false
       }
     })
     
-    // Sort events within each month by date (earliest first)
-    Object.keys(grouped).forEach((key) => {
-      grouped[key].sort((a, b) => {
-        const dateA = typeof a.event_start === 'string' ? parseISO(a.event_start) : new Date(a.event_start)
-        const dateB = typeof b.event_start === 'string' ? parseISO(b.event_start) : new Date(b.event_start)
-        return dateA.getTime() - dateB.getTime()
-      })
+    // Sort by date
+    return upcomingEvents.sort((a, b) => {
+      const dateA = typeof a.event_start === 'string' ? parseISO(a.event_start) : new Date(a.event_start)
+      const dateB = typeof b.event_start === 'string' ? parseISO(b.event_start) : new Date(b.event_start)
+      const floridaDateA = toFloridaTime(dateA)
+      const floridaDateB = toFloridaTime(dateB)
+      return floridaDateA.getTime() - floridaDateB.getTime()
     })
-    
-    // Month names for logging
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-    
-    console.log(`[EventsTimeline] Grouped into ${Object.keys(grouped).length} unique month-year combinations`)
-    console.log(`[EventsTimeline] Events per month:`, Object.entries(grouped).map(([key, events]) => {
-      const [yearStr, monthStr] = key.split('-')
-      const year = parseInt(yearStr)
-      const month = parseInt(monthStr)
-      const monthName = monthNames[month] || `Month ${month}`
-      return `${monthName} ${year} (key: ${key}): ${events.length} event(s)`
-    }))
-    
-    return grouped
-  }, [upcomingEvents, events.length])
-
-  // Get all months from all years, sorted chronologically
-  // Determine if we need to show years (if events span multiple years)
-  const allMonths = useMemo(() => {
-    const months: Array<{
-      key: string
-      year: number
-      month: number
-      label: string
-      fullLabel: string
-      count: number
-    }> = []
-    
-    // Get all unique years from events
-    const years = new Set<number>()
-    Object.keys(eventsByYearMonth).forEach((key) => {
-      const [yearStr] = key.split('-')
-      years.add(parseInt(yearStr))
-    })
-    
-    // Check if events span multiple years
-    const hasMultipleYears = years.size > 1
-    const currentYear = new Date().getFullYear()
-    
-    // Month names arrays for direct mapping (avoid timezone conversion issues)
-    const monthNamesFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-    const monthNamesShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
-    Object.keys(eventsByYearMonth).forEach((key) => {
-      const [yearStr, monthStr] = key.split('-')
-      const year = parseInt(yearStr)
-      const month = parseInt(monthStr) // This is 0-based (0 = January, 11 = December)
-      
-      // Validate month index
-      if (month < 0 || month > 11) {
-        console.error(`[EventsTimeline] Invalid month index ${month} for key ${key}`)
-        return
-      }
-      
-      // Use direct month name mapping to avoid timezone conversion issues
-      const monthNameFull = monthNamesFull[month]
-      const monthNameShort = monthNamesShort[month]
-      
-      // Generate label based on whether we have multiple years
-      let label: string
-      if (hasMultipleYears) {
-        // Show month + year abbreviation (e.g., "Jan '26", "Dec '25")
-        label = `${monthNameShort} '${year.toString().slice(-2)}`
-      } else {
-        // Show month only (e.g., "Jan", "Feb")
-        label = monthNameShort
-      }
-      
-      months.push({
-        key,
-        year,
-        month,
-        label,
-        fullLabel: `${monthNameFull} ${year}`, // "January 2025", "January 2026"
-        count: eventsByYearMonth[key].length
-      })
-    })
-    
-    // Sort chronologically (by year, then by month)
-    months.sort((a, b) => {
-      if (a.year !== b.year) {
-        return a.year - b.year
-      }
-      return a.month - b.month
-    })
-    
-    console.log(`[EventsTimeline] All months with events:`, months.map(m => `${m.label} (${m.count} events)`))
-    console.log(`[EventsTimeline] Has multiple years: ${hasMultipleYears}, Years:`, Array.from(years))
-    
-    return months
-  }, [eventsByYearMonth])
-
-  // Get initial selected month (first upcoming month with events)
-  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null)
-  
-  // Set initial selected month when months are available
-  useEffect(() => {
-    if (allMonths.length > 0) {
-      // Always select the first month (chronologically first upcoming month)
-      if (selectedMonthKey === null || !allMonths.find(m => m.key === selectedMonthKey)) {
-        setSelectedMonthKey(allMonths[0].key)
-      }
-    } else {
-      setSelectedMonthKey(null)
-    }
-  }, [allMonths])
-
-  // Get events for selected month
-  const currentEvents = useMemo(() => {
-    if (!selectedMonthKey) return []
-    return eventsByYearMonth[selectedMonthKey] || []
-  }, [selectedMonthKey, eventsByYearMonth])
-  
-  // Get selected month info
-  const selectedMonthInfo = useMemo(() => {
-    return allMonths.find(m => m.key === selectedMonthKey)
-  }, [allMonths, selectedMonthKey])
-
-  // Handle month toggle with smooth scroll
-  const handleMonthToggle = (monthKey: string) => {
-    setSelectedMonthKey(monthKey)
-    // Smooth scroll to events section
-    setTimeout(() => {
-      const eventsSection = document.getElementById('events-list')
-      if (eventsSection) {
-        eventsSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    }, 100)
-  }
+  }, [events])
 
   const formatTime = (timeString: string | undefined) => {
     if (!timeString) return ''
@@ -325,29 +77,174 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
 
   const formatDate = (dateString: string) => {
     try {
+      // Parse the date and convert to Florida timezone
       const date = typeof dateString === 'string' ? parseISO(dateString) : new Date(dateString)
+      const floridaDate = toFloridaTime(date)
+      
       return {
-        weekday: formatFloridaTime(date, 'EEE'),
-        day: formatFloridaTime(date, 'd'),
-        month: formatFloridaTime(date, 'MMM'),
-        full: formatFloridaTime(date, 'MMMM d, yyyy')
+        weekday: formatFloridaTime(floridaDate, 'EEE'),
+        day: formatFloridaTime(floridaDate, 'd'),
+        month: formatFloridaTime(floridaDate, 'MMM'),
+        monthNum: floridaDate.getMonth(), // 0-11 (in Florida timezone)
+        full: formatFloridaDateDDMMYYYY(date), // Use dd-mm-yyyy format
+        year: formatFloridaTime(floridaDate, 'yyyy')
       }
     } catch {
       return {
         weekday: '',
         day: '',
         month: '',
-        full: ''
+        monthNum: 0,
+        full: '',
+        year: ''
       }
     }
   }
 
-  if (upcomingEvents.length === 0) {
+  // Group events by year-month for month selector (using Florida timezone)
+  const eventsByYearMonth = useMemo(() => {
+    const grouped: Record<string, { year: number; month: number; monthName: string; events: Event[] }> = {}
+    
+    sortedEvents.forEach((event) => {
+      try {
+        // Parse and convert to Florida timezone
+        const date = typeof event.event_start === 'string' ? parseISO(event.event_start) : new Date(event.event_start)
+        const floridaDate = toFloridaTime(date)
+        const year = floridaDate.getFullYear()
+        const month = floridaDate.getMonth() // 0-11 (in Florida timezone)
+        const key = `${year}-${month.toString().padStart(2, '0')}`
+        
+        if (!grouped[key]) {
+          const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+          grouped[key] = {
+            year,
+            month,
+            monthName: monthNames[month],
+            events: []
+          }
+        }
+        grouped[key].events.push(event)
+      } catch (error) {
+        console.error('Error grouping event by month:', error, event)
+      }
+    })
+    
+    return grouped
+  }, [sortedEvents])
+
+  // Get all available months sorted chronologically
+  const availableMonths = useMemo(() => {
+    return Object.entries(eventsByYearMonth)
+      .sort(([keyA], [keyB]) => {
+        const [yearA, monthA] = keyA.split('-').map(Number)
+        const [yearB, monthB] = keyB.split('-').map(Number)
+        if (yearA !== yearB) return yearA - yearB
+        return monthA - monthB
+      })
+      .map(([key, data]) => ({
+        key,
+        ...data
+      }))
+  }, [eventsByYearMonth])
+
+  // Selected month state
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null)
+  const [isRestoring, setIsRestoring] = useState(false)
+
+  // Get events for selected month
+  const currentMonthEvents = useMemo(() => {
+    if (!selectedMonthKey) return []
+    return eventsByYearMonth[selectedMonthKey]?.events || []
+  }, [selectedMonthKey, eventsByYearMonth])
+
+  // Restore selected month from sessionStorage on mount
+  useEffect(() => {
+    if (availableMonths.length > 0 && Object.keys(eventsByYearMonth).length > 0) {
+      const savedMonthKey = sessionStorage.getItem('events-selected-month')
+      
+      // Restore selected month if it exists and is valid
+      if (savedMonthKey && eventsByYearMonth[savedMonthKey]) {
+        setIsRestoring(true)
+        setSelectedMonthKey(savedMonthKey)
+      } else if (selectedMonthKey === null) {
+        // Default to first available month if no saved state
+        setSelectedMonthKey(availableMonths[0].key)
+      }
+    }
+  }, [availableMonths.length, eventsByYearMonth, selectedMonthKey, availableMonths])
+
+  // Restore scroll position after selected month is set and events are rendered
+  useEffect(() => {
+    if (selectedMonthKey && currentMonthEvents.length > 0) {
+      const savedScrollY = sessionStorage.getItem('events-scroll-y')
+      if (savedScrollY && isRestoring) {
+        // Use requestAnimationFrame to ensure DOM is fully rendered
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            window.scrollTo({
+              top: parseInt(savedScrollY, 10),
+              behavior: 'instant'
+            })
+            sessionStorage.removeItem('events-scroll-y')
+            setIsRestoring(false)
+          }, 50)
+        })
+      } else if (!savedScrollY && isRestoring) {
+        setIsRestoring(false)
+      }
+    }
+  }, [selectedMonthKey, currentMonthEvents.length, isRestoring])
+
+  // Save selected month to sessionStorage whenever it changes (but not during restoration)
+  useEffect(() => {
+    if (selectedMonthKey && !isRestoring) {
+      sessionStorage.setItem('events-selected-month', selectedMonthKey)
+    }
+  }, [selectedMonthKey, isRestoring])
+
+  // Save scroll position and selected month when clicking on event links
+  useEffect(() => {
+    const handleEventLinkClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      const link = target.closest('a[href^="/events/"]') as HTMLAnchorElement
+      if (link && link.href.includes('/events/') && !link.href.endsWith('/events')) {
+        sessionStorage.setItem('events-scroll-y', window.scrollY.toString())
+        if (selectedMonthKey) {
+          sessionStorage.setItem('events-selected-month', selectedMonthKey)
+        }
+      }
+    }
+
+    document.addEventListener('click', handleEventLinkClick, true)
+    return () => {
+      document.removeEventListener('click', handleEventLinkClick, true)
+    }
+  }, [selectedMonthKey])
+
+  // Get selected month info
+  const selectedMonthInfo = useMemo(() => {
+    if (!selectedMonthKey) return null
+    return eventsByYearMonth[selectedMonthKey] || null
+  }, [selectedMonthKey, eventsByYearMonth])
+
+  // Handle month toggle with smooth scroll
+  const handleMonthToggle = (monthKey: string) => {
+    setSelectedMonthKey(monthKey)
+    // Smooth scroll to timeline
+    setTimeout(() => {
+      const timelineSection = document.getElementById('events-timeline')
+      if (timelineSection) {
+        timelineSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 100)
+  }
+
+  if (sortedEvents.length === 0) {
     return (
       <div className="text-center py-16 md:py-20">
         <div className="card-dark max-w-md mx-auto">
           <Calendar className="h-14 w-14 md:h-16 md:w-16 text-[#F59E0B] mx-auto mb-4 opacity-60" />
-          <p className="body-text text-center">No upcoming events scheduled at the moment. Check back soon!</p>
+          <p className="body-text text-center">No events scheduled at the moment. Check back soon!</p>
         </div>
       </div>
     )
@@ -357,7 +254,7 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
     <div className="w-full">
       {/* Heading */}
       <AnimatedSection direction="down">
-        <div className="text-center mb-6 md:mb-8">
+        <div className="text-center mb-8 md:mb-12">
           <h2 className="section-title mb-2">
             UPCOMING EVENTS
           </h2>
@@ -365,14 +262,14 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
         </div>
       </AnimatedSection>
 
-      {/* Month Selector Toggle Buttons - Only months with events */}
-      {allMonths.length > 0 && (
+      {/* Month Selector Buttons */}
+      {availableMonths.length > 0 && (
         <AnimatedSection direction="up" delay={100}>
-          <div className="mb-6 md:mb-8">
+          <div className="mb-8 md:mb-12">
             {/* Mobile: Horizontal scrollable */}
             <div className="md:hidden overflow-x-auto pb-3 scrollbar-hide -mx-4 px-4">
               <div className="flex gap-2 min-w-max">
-                {allMonths.map((month) => (
+                {availableMonths.map((month) => (
                   <button
                     key={month.key}
                     onClick={() => handleMonthToggle(month.key)}
@@ -383,13 +280,13 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
                     }`}
                   >
                     <span className="flex items-center gap-1.5">
-                      <span>{month.label}</span>
+                      <span>{month.monthName.slice(0, 3)}</span>
                       <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
                         selectedMonthKey === month.key
                           ? 'bg-white/20 text-white'
                           : 'bg-[#F59E0B]/20 text-[#F59E0B]'
                       }`}>
-                        {month.count}
+                        {month.events.length}
                       </span>
                     </span>
                     {selectedMonthKey === month.key && (
@@ -402,7 +299,7 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
             
             {/* Desktop: Centered wrap */}
             <div className="hidden md:flex flex-wrap gap-2.5 md:gap-3 justify-center">
-              {allMonths.map((month) => (
+              {availableMonths.map((month) => (
                 <button
                   key={month.key}
                   onClick={() => handleMonthToggle(month.key)}
@@ -413,13 +310,13 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <span>{month.label}</span>
+                    <span>{month.monthName}</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                       selectedMonthKey === month.key
                         ? 'bg-white/20 text-white'
-                        : 'bg-blue-500/20 text-[#F59E0B]'
+                        : 'bg-[#F59E0B]/20 text-[#F59E0B]'
                     }`}>
-                      {month.count}
+                      {month.events.length}
                     </span>
                   </span>
                   {selectedMonthKey === month.key && (
@@ -432,186 +329,133 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
         </AnimatedSection>
       )}
 
-      {/* Month Section */}
-      {selectedMonthKey && currentEvents.length > 0 && (
-        <AnimatedSection direction="up" delay={200}>
-          <div id="events-list" className="mb-6 md:mb-8 scroll-mt-20">
-            <h3 className="text-lg md:text-display-3 font-bold text-white mb-5 md:mb-8">
-              {selectedMonthInfo?.fullLabel || 'Events'}
-            </h3>
+      {/* Vertical Timeline for Selected Month */}
+      {selectedMonthKey && currentMonthEvents.length > 0 && (
+        <div id="events-timeline" className="relative scroll-mt-20">
+          {/* Month Label */}
+          <AnimatedSection direction="down" delay={200}>
+            <div className="text-center mb-8 md:mb-12 relative z-10">
+              <div className="bg-[#0E0E0E] inline-block px-6 py-3 rounded-lg border-2 border-[#F59E0B] shadow-lg">
+                <h3 className="text-2xl md:text-3xl font-bold text-[#F59E0B]">
+                  {selectedMonthInfo?.monthName} {selectedMonthInfo?.year}
+                </h3>
+                <p className="text-sm text-gray-400 mt-2">
+                  {currentMonthEvents.length} {currentMonthEvents.length === 1 ? 'event' : 'events'}
+                </p>
+              </div>
+            </div>
+          </AnimatedSection>
 
-            {/* Events List */}
-            <div className="space-y-0">
-              {currentEvents.map((event, index) => {
-                const eventDate = formatDate(event.event_start)
-                            const eventEnd = event.event_end
-                              ? (typeof event.event_end === 'string' ? toFloridaTime(parseISO(event.event_end)) : toFloridaTime(event.event_end))
-                              : null
-                            const eventStart = typeof event.event_start === 'string'
-                              ? toFloridaTime(parseISO(event.event_start))
-                              : toFloridaTime(event.event_start)
+          {/* Vertical Line - Desktop (starts below month label) */}
+          <div className="hidden md:block absolute left-1/2 top-24 md:top-28 bottom-0 w-0.5 bg-gradient-to-b from-[#F59E0B] via-[#F59E0B]/60 to-[#F59E0B] transform -translate-x-1/2 z-0"></div>
+          
+          {/* Vertical Line - Mobile (left side, starts below month label) */}
+          <div className="md:hidden absolute left-6 top-24 bottom-0 w-0.5 bg-gradient-to-b from-[#F59E0B] via-[#F59E0B]/60 to-[#F59E0B] z-0"></div>
 
-                return (
-                  <div
-                    key={event.id}
-                    className={`event-item-card border-b border-white/10 last:border-b-0 ${
-                      index > 0 ? 'pt-5 md:pt-8' : ''
-                    } ${index < currentEvents.length - 1 ? 'pb-5 md:pb-8' : ''}`}
-                  >
-                    {/* Mobile Layout */}
-                    <div className="md:hidden space-y-4">
-                      {/* Date and Image Row */}
-                      <div className="flex gap-3 items-start">
-                        {/* Date Block */}
-                        <div className="card-dark p-3 text-center flex-shrink-0 border border-[#F59E0B]/20">
-                          <div className="text-[10px] font-semibold text-[#F59E0B] uppercase tracking-wider mb-0.5">
-                            {eventDate.weekday}
-                          </div>
-                          <div className="text-xl font-extrabold text-[#F59E0B] mb-0.5">
-                            {eventDate.day}
-                          </div>
-                          <div className="text-[10px] font-medium text-gray-400 uppercase">
-                            {eventDate.month}
-                          </div>
-                        </div>
-                        
-                        {/* Event Image */}
-                        <Link href={`/events/${encodeURIComponent(event.slug)}`} className="flex-1">
-                          <div className="relative aspect-[16/10] rounded-lg overflow-hidden card-dark group border border-white/10">
-                            {event.image_path ? (
-                              <SupabaseImage
-                                src={event.image_path}
-                                alt={event.title}
-                                fill
-                                className="object-cover group-hover:scale-110 transition-transform duration-300"
-                                bucket="events"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-blue-600/40 via-purple-600/40 to-blue-600/40 flex items-center justify-center">
-                                <Calendar className="h-8 w-8 text-[#F59E0B] opacity-50" />
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                          </div>
-                        </Link>
-                      </div>
+          {/* Events List */}
+          <div className="relative space-y-8 md:space-y-12">
+            {currentMonthEvents.map((event, index) => {
+              const eventDate = formatDate(event.event_start)
+              const eventEnd = event.event_end
+                ? (typeof event.event_end === 'string' ? toFloridaTime(parseISO(event.event_end)) : toFloridaTime(event.event_end))
+                : null
+              const eventStart = typeof event.event_start === 'string'
+                ? toFloridaTime(parseISO(event.event_start))
+                : toFloridaTime(event.event_start)
+              
+              // Debug logging for first event
+              if (index === 0) {
+                console.log('EventsTimeline - Event display:', {
+                  'Raw from DB': event.event_start,
+                  'Florida time (start)': formatFloridaTime(eventStart, 'yyyy-MM-dd HH:mm:ss'),
+                  'Display time': formatTime(event.event_start),
+                })
+              }
 
-                      {/* Content */}
-                      <div className="space-y-3">
-                        {/* Show Time */}
-                        <div className="flex items-center gap-2">
-                          <div className="bg-gradient-to-br from-[#F59E0B]/12 to-[#F59E0B]/6 rounded-lg p-1 border border-[#F59E0B]/20">
-                            <Clock className="h-3.5 w-3.5 text-[#F59E0B]" />
-                          </div>
-                          <span className="text-xs font-semibold text-[#F59E0B]">
-                            {formatTime(event.event_start)}
-                            {eventEnd && ` - ${formatTime(event.event_end)}`}
-                          </span>
-                        </div>
+              // Alternate left/right for desktop
+              const isEven = index % 2 === 0
 
-                        {/* Event Title */}
-                        <h4 className="card-title">
-                          {event.title}
-                        </h4>
+              return (
+                <AnimatedSection 
+                  key={event.id} 
+                  direction={isEven ? 'left' : 'right'} 
+                  delay={index * 0.1}
+                  className="relative"
+                >
+                  {/* Timeline Node/Dot */}
+                  <div className="absolute left-6 md:left-1/2 transform -translate-x-1/2 z-20">
+                    <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-[#F59E0B] border-4 border-[#0E0E0E] shadow-lg shadow-[#F59E0B]/50"></div>
+                    <div className="absolute inset-0 w-4 h-4 md:w-5 md:h-5 rounded-full bg-[#F59E0B] animate-ping opacity-20"></div>
+                  </div>
 
-                        {/* Description */}
-                        {event.description && (
-                          <p className="body-text text-sm line-clamp-2">
-                            {event.description}
-                          </p>
-                        )}
-
-                        {/* Location and Ticket Price Row */}
-                        <div className="flex flex-col gap-2">
-                          {event.location && (
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-3.5 w-3.5 text-gray-400" />
-                              <span className="text-xs body-text">{event.location}</span>
+                  {/* Event Card with 3D Effect */}
+                  <div className={`ml-16 md:ml-0 ${isEven ? 'md:mr-[55%]' : 'md:ml-[55%]'} card-3d`}>
+                    <div className="card-dark hover:border-[#F59E0B]/50 transition-all duration-300 card-hover-lift card-3d-inner">
+                      {/* Mobile Layout */}
+                      <div className="md:hidden space-y-4">
+                        {/* Date Badge */}
+                        <div className="flex items-start gap-3">
+                          <div className="card-dark p-2.5 text-center border-2 border-[#F59E0B]/40 flex-shrink-0 w-16">
+                            <div className="text-[9px] font-semibold text-[#F59E0B] uppercase tracking-wider mb-0.5">
+                              {eventDate.weekday}
                             </div>
-                          )}
-
-                          {(event.base_ticket_price || (event.event_tickets && event.event_tickets.length > 0)) && (
-                            <div className="flex items-center gap-2">
-                              <Ticket className="h-3.5 w-3.5 text-[#F59E0B]" />
-                              <span className="text-xs font-semibold price-amber">
-                                {event.base_ticket_price 
-                                  ? `${event.ticket_currency === 'USD' ? '$' : event.ticket_currency === 'EUR' ? '€' : event.ticket_currency === 'GBP' ? '£' : event.ticket_currency === 'CAD' ? 'C$' : event.ticket_currency === 'AUD' ? 'A$' : '$'}${parseFloat(event.base_ticket_price.toString()).toFixed(2)}`
-                                  : event.event_tickets && event.event_tickets.length > 0
-                                    ? `From $${parseFloat(event.event_tickets[0].price.toString()).toFixed(2)}`
-                                    : ''
-                                }
-                              </span>
+                            <div className="text-lg font-extrabold text-[#F59E0B] mb-0.5">
+                              {eventDate.day}
                             </div>
-                          )}
+                            <div className="text-[9px] font-medium text-gray-400 uppercase">
+                              {eventDate.month}
+                            </div>
+                          </div>
+
+                          {/* Event Image - Smaller on mobile */}
+                          <Link href={`/events/${encodeURIComponent(event.slug)}`} className="flex-1 max-w-[120px]">
+                            <div className="relative aspect-square rounded-lg overflow-hidden group">
+                              {event.image_path ? (
+                                <SupabaseImage
+                                  src={event.image_path}
+                                  alt={event.title}
+                                  fill
+                                  className="object-cover group-hover:scale-110 transition-transform duration-300"
+                                  bucket="events"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-[#F59E0B]/20 to-[#F59E0B]/10 flex items-center justify-center">
+                                  <Calendar className="h-6 w-6 text-[#F59E0B] opacity-50" />
+                                </div>
+                              )}
+                            </div>
+                          </Link>
                         </div>
 
-                        {/* CTA Button */}
-                        <Link href={`/events/${encodeURIComponent(event.slug)}`} className="block">
-                          <button className="btn-amber-sm w-full">
-                            View Details <ArrowRight className="ml-2 h-3.5 w-3.5 inline" />
-                          </button>
-                        </Link>
-                      </div>
-                    </div>
-
-                    {/* Desktop Layout */}
-                    <div className="hidden md:grid grid-cols-12 gap-4 md:gap-6 items-start max-w-5xl mx-auto">
-                      {/* Date Block - Left */}
-                      <div className="lg:col-span-2">
-                        <div className="card-dark p-4 md:p-5 text-center border border-[#F59E0B]/20">
-                          <div className="text-xs md:text-sm font-semibold text-[#F59E0B] uppercase tracking-wider mb-1">
-                            {eventDate.weekday}
-                          </div>
-                          <div className="text-2xl md:text-3xl font-extrabold text-[#F59E0B] mb-1">
-                            {eventDate.day}
-                          </div>
-                          <div className="text-xs md:text-sm font-medium text-gray-400 uppercase">
-                            {eventDate.month}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Content Area - Center */}
-                      <div className="lg:col-span-7 flex flex-col justify-between">
-                        <div>
-                          {/* Show Time */}
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="bg-gradient-to-br from-[#F59E0B]/12 to-[#F59E0B]/6 rounded-lg p-1.5 border border-[#F59E0B]/20">
-                              <Clock className="h-4 w-4 text-[#F59E0B]" />
-                            </div>
-                            <span className="text-body-small font-semibold text-[#F59E0B]">
+                        {/* Content */}
+                        <div className="space-y-3">
+                          <h4 className="card-title text-lg">{event.title}</h4>
+                          
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-[#F59E0B]" />
+                            <span className="text-sm text-[#F59E0B] font-semibold">
                               {formatTime(event.event_start)}
                               {eventEnd && ` - ${formatTime(event.event_end)}`}
                             </span>
                           </div>
 
-                          {/* Event Title */}
-                          <h4 className="card-title mb-3 md:mb-4">
-                            {event.title}
-                          </h4>
-
-                          {/* Description */}
-                          {event.description && (
-                            <p className="body-text text-sm mb-4 md:mb-5 line-clamp-2">
-                              {event.description}
-                            </p>
-                          )}
-
-                          {/* Location */}
                           {event.location && (
-                            <div className="flex items-center gap-2 mb-4">
+                            <div className="flex items-center gap-2">
                               <MapPin className="h-4 w-4 text-gray-400" />
                               <span className="text-sm body-text">{event.location}</span>
                             </div>
                           )}
 
-                          {/* Ticket Price */}
+                          {event.description && (
+                            <p className="body-text text-sm line-clamp-2">{event.description}</p>
+                          )}
+
                           {(event.base_ticket_price || (event.event_tickets && event.event_tickets.length > 0)) && (
-                            <div className="flex items-center gap-2 mb-4">
+                            <div className="flex items-center gap-2">
                               <Ticket className="h-4 w-4 text-[#F59E0B]" />
                               <span className="text-sm font-semibold price-amber">
                                 {event.base_ticket_price 
-                                  ? `${event.ticket_currency === 'USD' ? '$' : event.ticket_currency === 'EUR' ? '€' : event.ticket_currency === 'GBP' ? '£' : event.ticket_currency === 'CAD' ? 'C$' : event.ticket_currency === 'AUD' ? 'A$' : '$'}${parseFloat(event.base_ticket_price.toString()).toFixed(2)}`
+                                  ? `${event.ticket_currency === 'USD' ? '$' : '$'}${parseFloat(event.base_ticket_price.toString()).toFixed(2)}`
                                   : event.event_tickets && event.event_tickets.length > 0
                                     ? `From $${parseFloat(event.event_tickets[0].price.toString()).toFixed(2)}`
                                     : ''
@@ -619,55 +463,114 @@ export default function EventsTimeline({ events }: EventsTimelineProps) {
                               </span>
                             </div>
                           )}
-                        </div>
 
-                        {/* CTA Button */}
-                        <div className="mt-4">
-                          <Link href={`/events/${encodeURIComponent(event.slug)}`}>
-                            <button className="btn-amber-sm inline-flex items-center gap-2">
-                              View Details <ArrowRight className="h-4 w-4" />
+                          <Link href={`/events/${encodeURIComponent(event.slug)}`} className="block mt-4">
+                            <button className="btn-amber-sm w-full">
+                              View Details <ArrowRight className="ml-2 h-3.5 w-3.5 inline" />
                             </button>
                           </Link>
                         </div>
                       </div>
 
-                      {/* Event Image - Right */}
-                      <div className="lg:col-span-3">
-                        <Link href={`/events/${encodeURIComponent(event.slug)}`}>
-                          <div className="relative aspect-[4/5] rounded-xl overflow-hidden card-dark group cursor-pointer border border-white/10">
-                            {event.image_path ? (
-                              <SupabaseImage
-                                src={event.image_path}
-                                alt={event.title}
-                                fill
-                                className="object-cover group-hover:scale-110 transition-transform duration-300"
-                                bucket="events"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-blue-600/40 via-purple-600/40 to-blue-600/40 flex items-center justify-center">
-                                <Calendar className="h-12 w-12 text-[#F59E0B] opacity-50" />
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                      {/* Desktop Layout */}
+                      <div className="hidden md:grid grid-cols-12 gap-6 items-center">
+                        {/* Date Section */}
+                        <div className={`col-span-3 ${isEven ? 'order-1' : 'order-3'}`}>
+                          <div className="card-dark p-5 text-center border-2 border-[#F59E0B]/40">
+                            <div className="text-xs font-semibold text-[#F59E0B] uppercase tracking-wider mb-1">
+                              {eventDate.weekday}
+                            </div>
+                            <div className="text-3xl font-extrabold text-[#F59E0B] mb-1">
+                              {eventDate.day}
+                            </div>
+                            <div className="text-sm font-medium text-gray-400 uppercase">
+                              {eventDate.month}
+                            </div>
                           </div>
-                        </Link>
+                        </div>
+
+                        {/* Content Section */}
+                        <div className={`col-span-6 ${isEven ? 'order-2' : 'order-2'} space-y-3`}>
+                          <h4 className="card-title text-xl">{event.title}</h4>
+                          
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-[#F59E0B]" />
+                            <span className="text-sm text-[#F59E0B] font-semibold">
+                              {formatTime(event.event_start)}
+                              {eventEnd && ` - ${formatTime(event.event_end)}`}
+                            </span>
+                          </div>
+
+                          {event.location && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-gray-400" />
+                              <span className="text-sm body-text">{event.location}</span>
+                            </div>
+                          )}
+
+                          {event.description && (
+                            <p className="body-text text-sm line-clamp-3">{event.description}</p>
+                          )}
+
+                          {(event.base_ticket_price || (event.event_tickets && event.event_tickets.length > 0)) && (
+                            <div className="flex items-center gap-2">
+                              <Ticket className="h-4 w-4 text-[#F59E0B]" />
+                              <span className="text-sm font-semibold price-amber">
+                                {event.base_ticket_price 
+                                  ? `${event.ticket_currency === 'USD' ? '$' : '$'}${parseFloat(event.base_ticket_price.toString()).toFixed(2)}`
+                                  : event.event_tickets && event.event_tickets.length > 0
+                                    ? `From $${parseFloat(event.event_tickets[0].price.toString()).toFixed(2)}`
+                                    : ''
+                                }
+                              </span>
+                            </div>
+                          )}
+
+                          <Link href={`/events/${encodeURIComponent(event.slug)}`} className="inline-block mt-4">
+                            <button className="btn-amber-sm inline-flex items-center gap-2">
+                              View Details <ArrowRight className="h-4 w-4" />
+                            </button>
+                          </Link>
+                        </div>
+
+                        {/* Image Section */}
+                        <div className={`col-span-3 ${isEven ? 'order-3' : 'order-1'}`}>
+                          <Link href={`/events/${encodeURIComponent(event.slug)}`}>
+                            <div className="relative aspect-[4/5] rounded-xl overflow-hidden group cursor-pointer">
+                              {event.image_path ? (
+                                <SupabaseImage
+                                  src={event.image_path}
+                                  alt={event.title}
+                                  fill
+                                  className="object-cover group-hover:scale-110 transition-transform duration-300"
+                                  bucket="events"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-[#F59E0B]/20 to-[#F59E0B]/10 flex items-center justify-center">
+                                  <Calendar className="h-12 w-12 text-[#F59E0B] opacity-50" />
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            </div>
+                          </Link>
+                        </div>
                       </div>
                     </div>
                   </div>
-                )
-              })}
-            </div>
+                </AnimatedSection>
+              )
+            })}
           </div>
-        </AnimatedSection>
+        </div>
       )}
 
       {/* Empty State for Selected Month */}
-      {selectedMonthKey && currentEvents.length === 0 && (
+      {selectedMonthKey && currentMonthEvents.length === 0 && (
         <div className="text-center py-12 md:py-16">
           <div className="card-dark max-w-md mx-auto">
             <Calendar className="h-12 w-12 md:h-14 md:w-14 text-[#F59E0B] mx-auto mb-4 opacity-60" />
             <p className="body-text text-center">
-              No events scheduled for {selectedMonthInfo?.fullLabel || 'this month'}.
+              No events scheduled for {selectedMonthInfo?.monthName} {selectedMonthInfo?.year}.
             </p>
           </div>
         </div>
