@@ -24,16 +24,30 @@ export async function POST(request: NextRequest) {
 
     if (type === 'ticket' && orderId) {
       // Dummy payment - call complete-purchase to create tickets and mark as paid
-      // Construct base URL from request
-      const protocol = request.headers.get('x-forwarded-proto') || 'http'
-      const host = request.headers.get('host') || 'localhost:3000'
-      const baseUrl = `${protocol}://${host}`
+      // Use environment variable if available, otherwise construct from request
+      let baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL
+      
+      if (!baseUrl) {
+        // Construct from request URL for serverless environments
+        const url = new URL(request.url)
+        baseUrl = `${url.protocol}//${url.host}`
+      }
+      
+      // Remove trailing slash if present
+      const cleanBaseUrl = baseUrl.replace(/\/$/, '')
+      const completePurchaseUrl = `${cleanBaseUrl}/api/tickets/complete-purchase`
       
       try {
         // Call the complete-purchase endpoint (internal call - creates tickets and marks as paid)
-        const completeResponse = await fetch(`${baseUrl}/api/tickets/complete-purchase`, {
+        const completeResponse = await fetch(completePurchaseUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            // Pass through any auth headers if needed
+            ...(request.headers.get('authorization') && {
+              'authorization': request.headers.get('authorization')!
+            }),
+          },
           body: JSON.stringify({
             orderId,
             paymentTransactionId: transactionId,
@@ -43,7 +57,13 @@ export async function POST(request: NextRequest) {
         })
 
         if (!completeResponse.ok) {
-          const errorData = await completeResponse.json().catch(() => ({ error: 'Unknown error' }))
+          const errorText = await completeResponse.text()
+          let errorData: any = { error: 'Unknown error' }
+          try {
+            errorData = JSON.parse(errorText)
+          } catch {
+            errorData = { error: errorText || 'Failed to complete ticket purchase' }
+          }
           throw new Error(errorData.error || 'Failed to complete ticket purchase')
         }
 
@@ -74,41 +94,13 @@ export async function POST(request: NextRequest) {
           eventSlug: completeData.eventSlug,
         })
       } catch (fetchError: any) {
-        console.error('Failed to call complete-purchase, tickets may not be created:', fetchError.message)
-        // Mark order as paid anyway (user can retry or admin can create tickets manually)
-        const { data: orderData } = await supabase
-          .from('ticket_orders')
-          .select('event_id, events(slug)')
-          .eq('id', orderId)
-          .single()
-
-        const { error: updateError } = await supabase
-          .from('ticket_orders')
-          .update({
-            payment_status: 'paid',
-            payment_method: paymentMethod,
-            payment_transaction_id: transactionId,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', orderId)
-
-        if (updateError) {
-          throw new Error('Failed to update ticket order payment status')
-        }
-
-        // Handle events as object (not array) from Supabase relation
-        const eventsData = orderData?.events as any
-        const eventSlug = (Array.isArray(eventsData) ? eventsData[0]?.slug : eventsData?.slug) || 'events'
-        // Return success but note that tickets creation may have failed
-        return NextResponse.json({
-          success: true,
-          transactionId,
-          orderId,
-          type: 'ticket',
-          redirectUrl: `/events/${eventSlug}/tickets/${orderId}`,
-          eventSlug: eventSlug,
-          warning: 'Payment processed but ticket creation may have failed. Please check tickets page.',
-        })
+        console.error('[Payment Process] Failed to call complete-purchase:', fetchError.message)
+        console.error('[Payment Process] Attempted URL:', completePurchaseUrl)
+        
+        // If fetch fails (e.g., in serverless), we need to handle ticket creation directly
+        // For now, return error and let the client retry or contact support
+        // The order should still be marked as paid to prevent double charges
+        throw new Error(`Payment processing failed: ${fetchError.message}. Please try again or contact support.`)
       }
     } else if (type === 'reservation' && reservationId) {
       // Update reservation payment status

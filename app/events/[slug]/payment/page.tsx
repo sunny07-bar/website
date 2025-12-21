@@ -72,24 +72,24 @@ function TicketPaymentPageContent() {
       return
     }
 
-    // Basic validation
-    if (!cardData.cardNumber || cardData.cardNumber.replace(/\s/g, '').length < 13) {
-      setError('Please enter a valid card number')
+    // Minimal validation - just check that fields are not empty (dummy payment)
+    if (!cardData.cardNumber.trim()) {
+      setError('Please enter card number')
       return
     }
-    if (!cardData.cardName) {
+    if (!cardData.cardName.trim()) {
       setError('Please enter cardholder name')
       return
     }
-    if (!cardData.expiryDate || cardData.expiryDate.length < 5) {
-      setError('Please enter a valid expiry date (MM/YY)')
+    if (!cardData.expiryDate.trim()) {
+      setError('Please enter expiry date')
       return
     }
-    if (!cardData.cvv || cardData.cvv.length < 3) {
-      setError('Please enter a valid CVV')
+    if (!cardData.cvv.trim()) {
+      setError('Please enter CVV')
       return
     }
-    if (!cardData.zipCode) {
+    if (!cardData.zipCode.trim()) {
       setError('Please enter zip code')
       return
     }
